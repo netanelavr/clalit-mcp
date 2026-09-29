@@ -1,5 +1,5 @@
 /** Issue tracker for defects and feature requests. Security → SECURITY.md. */
-export const ISSUES_URL = "https://github.com/netanelavr/clalit-health/issues";
+export const ISSUES_URL = "https://github.com/netanelavr/clalit-mcp/issues";
 
 /** Safe errors never retain upstream URLs, bodies, headers, or fetch error causes. */
 export class ClalitError extends Error {

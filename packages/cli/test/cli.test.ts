@@ -7,7 +7,7 @@ describe("CLI command catalog", () => {
     for (const name of ["login", "labs", "lab", "lab-document", "mcp", "logout"]) {
       expect(COMMANDS[name]).toBeTruthy();
     }
-    expect(help()).toContain("clalit-health");
+    expect(help()).toContain("clalit-mcp");
     expect(help("labs")).toContain("LabsTestList");
   });
 });

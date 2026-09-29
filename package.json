@@ -1,8 +1,8 @@
 {
-  "name": "clalit-health",
+  "name": "clalit-mcp",
   "version": "0.1.0",
   "description": "Node.js library, CLI, and MCP server for reading your own Clalit Health Services lab records.",
-  "mcpName": "io.github.netanelavr/clalit-health",
+  "mcpName": "io.github.netanelavr/clalit-mcp",
   "keywords": [
     "clalit",
     "mcp",
@@ -17,13 +17,13 @@
   ],
   "license": "MIT",
   "author": "Netanel Avraham (https://github.com/netanelavr)",
-  "homepage": "https://github.com/netanelavr/clalit-health#readme",
+  "homepage": "https://github.com/netanelavr/clalit-mcp#readme",
   "bugs": {
-    "url": "https://github.com/netanelavr/clalit-health/issues"
+    "url": "https://github.com/netanelavr/clalit-mcp/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/netanelavr/clalit-health.git"
+    "url": "git+https://github.com/netanelavr/clalit-mcp.git"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -47,7 +47,7 @@
     "vitest": "^3.0.9"
   },
   "bin": {
-    "clalit-health": "./packages/cli/src/main.ts"
+    "clalit-mcp": "./packages/cli/src/main.ts"
   },
   "files": [
     "packages/*/src",

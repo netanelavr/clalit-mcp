@@ -4,13 +4,13 @@ The shared agent box **cannot** complete Clalit login (Imperva Error 16). First 
 
 ## Checklist
 
-1. Clone `https://github.com/netanelavr/clalit-health`, `npm install`, `npm test` (all offline tests green).
+1. Clone `https://github.com/netanelavr/clalit-mcp`, `npm install`, `npm test` (all offline tests green).
 2. On your Mac (home/residential network, normal browser already works for Clalit):
    ```sh
    npx tsx packages/cli/src/main.ts login
    ```
 3. Solve CAPTCHA when prompted; enter SMS OTP.
-4. Confirm session file exists: `~/.config/clalit-health/session.json` (mode `0600`).
+4. Confirm session file exists: `~/.config/clalit-mcp/session.json` (mode `0600`).
 5. Run:
    ```sh
    npx tsx packages/cli/src/main.ts labs --json | head

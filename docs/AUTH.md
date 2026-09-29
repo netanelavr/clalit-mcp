@@ -25,8 +25,8 @@ The site is fronted by Imperva. Headless datacenter clients often receive **Erro
 Config directory (mode `0700`), resolved as:
 
 1. `CLALIT_CONFIG_DIR` if set
-2. `$XDG_CONFIG_HOME/clalit-health`
-3. `~/.config/clalit-health`
+2. `$XDG_CONFIG_HOME/clalit-mcp`
+3. `~/.config/clalit-mcp`
 
 Files:
 
@@ -42,7 +42,7 @@ Portal session TTL was **not measured** in Gate 2. Default soft idle hint: **~10
 
 ## Keep-alive
 
-`GET /OnlineWeb/ServicesForAll/RefreshSession.aspx` was observed returning small HTML. Optional CLI: `clalit-health refresh-session`. Use sparingly; it does not replace login and must not be used to probe Imperva.
+`GET /OnlineWeb/ServicesForAll/RefreshSession.aspx` was observed returning small HTML. Optional CLI: `clalit-mcp refresh-session`. Use sparingly; it does not replace login and must not be used to probe Imperva.
 
 ## Owner scope
 

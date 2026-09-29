@@ -25,7 +25,7 @@ const INSTRUCTIONS = [
 
 export async function startStdioServer(): Promise<void> {
   const server = new Server(
-    { name: "clalit-health", version: "0.1.0" },
+    { name: "clalit-mcp", version: "0.1.0" },
     { instructions: INSTRUCTIONS, capabilities: { tools: {} } },
   );
 

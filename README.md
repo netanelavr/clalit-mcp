@@ -45,8 +45,8 @@ Optional soft keep-alive: `RefreshSession.aspx` (observed in HAR). Idle TTL is *
 ## Install
 
 ```sh
-git clone https://github.com/netanelavr/clalit-health.git
-cd clalit-health
+git clone https://github.com/netanelavr/clalit-mcp.git
+cd clalit-mcp
 npm install
 npm test
 ```
@@ -73,10 +73,10 @@ See [docs/LIVE-VERIFY.md](docs/LIVE-VERIFY.md) for the first live login checklis
 ```json
 {
   "mcpServers": {
-    "clalit-health": {
+    "clalit-mcp": {
       "command": "npx",
       "args": ["tsx", "packages/cli/src/main.ts", "mcp"],
-      "cwd": "/absolute/path/to/clalit-health"
+      "cwd": "/absolute/path/to/clalit-mcp"
     }
   }
 }

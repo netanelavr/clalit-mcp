@@ -26,7 +26,7 @@ export async function runLogin(idNumber?: string): Promise<number> {
     const client = await login(id, prompts);
     const session = await client.exportSession();
     await saveSession(session);
-    console.log("Signed in. Session saved under the clalit-health config directory (mode 0600).");
+    console.log("Signed in. Session saved under the clalit-mcp config directory (mode 0600).");
     console.log("Idle sessions expire quickly (~10 minutes). Re-run login when reads fail.");
     return 0;
   } catch (err) {
@@ -36,7 +36,7 @@ export async function runLogin(idNumber?: string): Promise<number> {
         "Imperva blocked this host (often Error 16 on datacenter/cloud IPs).",
       );
       console.error(
-        "Run `clalit-health login` on your own Mac/home network. Never bypass Imperva.",
+        "Run `clalit-mcp login` on your own Mac/home network. Never bypass Imperva.",
       );
       return 3;
     }

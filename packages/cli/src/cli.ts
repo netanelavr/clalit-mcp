@@ -17,7 +17,7 @@ function has(args: string[], name: string): boolean {
 async function requireClient() {
   const session = await loadSession();
   if (!session) {
-    console.error("Not signed in. Run: clalit-health login");
+    console.error("Not signed in. Run: clalit-mcp login");
     return undefined;
   }
   return connect(session);
@@ -61,7 +61,7 @@ export async function runCli(args: string[]): Promise<number> {
     case "lab": {
       const ref = flag(rest, "ref");
       if (!ref) {
-        console.error("Usage: clalit-health lab --ref TOKEN");
+        console.error("Usage: clalit-mcp lab --ref TOKEN");
         return 2;
       }
       const client = await requireClient();
@@ -92,7 +92,7 @@ export async function runCli(args: string[]): Promise<number> {
       const ref = flag(rest, "ref");
       const out = flag(rest, "out");
       if (!ref || !out) {
-        console.error("Usage: clalit-health lab-document --ref TOKEN --out FILE");
+        console.error("Usage: clalit-mcp lab-document --ref TOKEN --out FILE");
         return 2;
       }
       // Validate token early for clearer errors

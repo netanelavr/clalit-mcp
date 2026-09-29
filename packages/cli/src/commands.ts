@@ -67,7 +67,7 @@ export function help(name?: string): string {
   if (name && COMMANDS[name]) {
     const c = COMMANDS[name]!;
     return [
-      `Usage: clalit-health ${c.usage}`,
+      `Usage: clalit-mcp ${c.usage}`,
       "",
       c.description,
       c.notes ? `\nNotes: ${c.notes}` : "",
@@ -76,7 +76,7 @@ export function help(name?: string): string {
       .join("\n");
   }
   const lines = [
-    `clalit-health ${VERSION} — own-account Clalit lab reads (unofficial)`,
+    `clalit-mcp ${VERSION} — own-account Clalit lab reads (unofficial)`,
     "",
     "Commands:",
     ...Object.entries(COMMANDS).map(([k, c]) => `  ${k.padEnd(16)} ${c.summary}`),

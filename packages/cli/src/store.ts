@@ -5,8 +5,8 @@ import type { ClalitSession } from "@clalit/core";
 
 function configDir(): string {
   if (process.env.CLALIT_CONFIG_DIR) return process.env.CLALIT_CONFIG_DIR;
-  if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, "clalit-health");
-  return join(homedir(), ".config", "clalit-health");
+  if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, "clalit-mcp");
+  return join(homedir(), ".config", "clalit-mcp");
 }
 
 export function sessionPath(): string {
