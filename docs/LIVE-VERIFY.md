@@ -33,6 +33,8 @@ The shared agent box **cannot** complete Clalit login (Imperva Error 16). First 
 | Symptom | Meaning |
 | --- | --- |
 | Imperva Error 16 / `BOT_CHALLENGE` | Wrong network or automation fingerprint — use Mac UI network, no VPN datacenter. `login --http` does **not** bypass Imperva |
+| Stuck on **Checking CAPTCHA…** / `CAPTCHA_CHECK_TIMEOUT` / `TIMEOUT` | Portal POST hung or CAPTCHA rejected; UI should error within ~30s and auto-refresh. Retry `login --http`, or terminal fallback: `npx tsx packages/cli/src/main.ts login` |
+| `CAPTCHA_REJECTED` / `OTP_PAGE_MISSING` | Wrong CAPTCHA or unexpected portal HTML — refresh image and retry |
 | `REAUTHENTICATION_REQUIRED` | Idle/session expired — `login` again |
 | Empty labs list | Account has no rows in range, or date filter format mismatch |
 | `NO_DOCUMENT` / `NOT_PDF` | Portal control id differs — capture sanitized detail HTML |

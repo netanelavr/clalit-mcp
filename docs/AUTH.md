@@ -26,6 +26,8 @@ Same CAPTCHA + SMS OTP flow as terminal login, but prompts run on a **loopback**
 
 Form posts use **303 See Other** (PRG) so Refresh / double-Continue cannot replay a CAPTCHA or OTP POST into a cleared waiter. Answers are buffered if Continue races ahead of the portal prompt. Only one `login --http` may run at a time (lockfile). Loopback session budget: **~30 minutes**.
 
+After CAPTCHA Continue, the client POSTs to Clalit, follows redirects (or GETs the OTP page), and must reach SMS OTP **or** surface a clear error within **~30 seconds** (transport abort + captcha-check budget). Waiting pages auto-refresh every 2s so OTP / failure UI appears without a manual reload. If the browser UI stalls, use terminal fallback: `clalit-mcp login`.
+
 ## What we store
 
 Config directory (mode `0700`), resolved as:

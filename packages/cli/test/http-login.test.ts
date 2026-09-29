@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
+  CAPTCHA_CHECK_TIMEOUT_MS,
   captchaPage,
   escapeHtml,
+  errorPage,
   HTTP_LOGIN_TTL_MS,
   idPage,
   otpPage,
@@ -15,6 +17,10 @@ describe("http-login helpers", () => {
     expect(HTTP_LOGIN_TTL_MS).toBeGreaterThanOrEqual(30 * 60 * 1000);
   });
 
+  test("CAPTCHA check timeout is ~30 seconds", () => {
+    expect(CAPTCHA_CHECK_TIMEOUT_MS).toBe(30_000);
+  });
+
   test("escapeHtml and pages render expected fields", () => {
     expect(escapeHtml("<x>")).toBe("&lt;x&gt;");
     expect(idPage("csrf-token")).toContain('name="id"');
@@ -22,7 +28,10 @@ describe("http-login helpers", () => {
     expect(captchaPage("csrf-token", { hasImage: false })).toContain("CAPTCHA");
     expect(otpPage("csrf-token", "Enter SMS")).toContain('name="otp"');
     expect(waitingPage("Checking CAPTCHA…", "Waiting")).toContain("Checking CAPTCHA");
-    expect(waitingPage("Checking CAPTCHA…", "Waiting")).not.toContain("http-equiv");
+    // Waiting pages must auto-refresh so OTP / errors appear without a manual reload.
+    expect(waitingPage("Checking CAPTCHA…", "Waiting")).toContain('http-equiv="refresh"');
+    expect(waitingPage("Checking CAPTCHA…", "Waiting")).toContain('content="2"');
+    expect(errorPage("boom")).toContain("clalit-mcp login");
   });
 
   test("takeOrWait buffers answer when no waiter yet (CAPTCHA Continue race)", async () => {

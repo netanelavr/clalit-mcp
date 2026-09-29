@@ -15,12 +15,20 @@ import { spawn } from "node:child_process";
 import { open, unlink, mkdir, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { login, type CaptchaChallenge, type LoginPrompts, type OtpChallenge } from "@clalit/core";
+import {
+  CAPTCHA_CHECK_BUDGET_MS,
+  login,
+  type CaptchaChallenge,
+  type LoginPrompts,
+  type OtpChallenge,
+} from "@clalit/core";
 import { saveSession } from "./store.js";
 
 const LOCAL_HOST = "127.0.0.1" as const;
 /** Browser login wall-clock budget (ID + CAPTCHA + SMS). */
 export const HTTP_LOGIN_TTL_MS = 30 * 60 * 1000;
+/** After CAPTCHA Continue: show OTP or a clear error within this budget. */
+export const CAPTCHA_CHECK_TIMEOUT_MS = CAPTCHA_CHECK_BUDGET_MS;
 const BODY_LIMIT = 32 * 1024;
 const CLIENT_LABEL = "clalit-mcp";
 
@@ -53,9 +61,13 @@ button:disabled,form[data-sent] button{opacity:.6;cursor:default;pointer-events:
 .err{color:#b00020;margin:0 0 1rem}
 img.captcha{max-width:100%;height:auto;border:1px solid #8884;border-radius:.4rem;margin:.5rem 0;background:#fff}`;
 
-function layout(title: string, body: string): string {
+function layout(title: string, body: string, opts?: { refreshSeconds?: number }): string {
+  const refresh =
+    opts?.refreshSeconds && opts.refreshSeconds > 0
+      ? `<meta http-equiv="refresh" content="${opts.refreshSeconds}"/>`
+      : "";
   return `<!DOCTYPE html>
-<html lang="he" dir="rtl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtml(title)}</title><style>${STYLE}</style></head>
+<html lang="he" dir="rtl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>${refresh}<title>${escapeHtml(title)}</title><style>${STYLE}</style></head>
 <body><main>${body}</main><script>${LOCK_SCRIPT}</script></body></html>`;
 }
 
@@ -136,12 +148,17 @@ export function errorPage(message: string): string {
     "Sign-in stopped",
     `<h1>Sign-in stopped</h1>
 <p>${escapeHtml(message)}</p>
-<p class="note">Close this window and run <code>clalit-mcp login --http</code> again. Never bypass Imperva.</p>`,
+<p class="note">Close this window and run <code>clalit-mcp login --http</code> again. Or use terminal prompts: <code>clalit-mcp login</code>. Never bypass Imperva.</p>`,
   );
 }
 
-export function waitingPage(title: string, body: string): string {
-  return layout(title, `<h1>${escapeHtml(title)}</h1><p class="note">${escapeHtml(body)}</p>`);
+/** Waiting / intermediate UI. Gentle head refresh so phase changes (OTP / error) appear without a manual reload. */
+export function waitingPage(title: string, body: string, refreshSeconds = 2): string {
+  return layout(
+    title,
+    `<h1>${escapeHtml(title)}</h1><p class="note">${escapeHtml(body)}</p>`,
+    { refreshSeconds },
+  );
 }
 
 function sendHtml(res: ServerResponse, status: number, html: string, extra: Record<string, string> = {}): void {
@@ -351,7 +368,16 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
     };
   });
 
+  let phaseWatchdog: ReturnType<typeof setTimeout> | undefined;
+  const clearPhaseWatchdog = (): void => {
+    if (phaseWatchdog !== undefined) {
+      clearTimeout(phaseWatchdog);
+      phaseWatchdog = undefined;
+    }
+  };
+
   const fail = (message: string, code = 1): void => {
+    clearPhaseWatchdog();
     phase = "failed";
     lastError = message;
     idSlot.pending?.reject(new Error(message));
@@ -359,6 +385,16 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
     otpSlot.pending?.reject(new Error(message));
     idSlot.pending = captchaSlot.pending = otpSlot.pending = undefined;
     settleExit(code);
+  };
+
+  /** Fail with a clear UI error if a waiting phase never advances (e.g. hung portal POST). */
+  const startPhaseWatchdog = (expected: Phase, ms: number, message: string): void => {
+    clearPhaseWatchdog();
+    phaseWatchdog = setTimeout(() => {
+      if (phase === expected) {
+        fail(message, 1);
+      }
+    }, ms);
   };
 
   const prompts: LoginPrompts = {
@@ -373,13 +409,28 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
       if (captchaSlot.value !== undefined) {
         phase = "submitting_captcha";
         lastError = undefined;
-        return waitForAnswer(captchaSlot);
+        const answer = await waitForAnswer(captchaSlot);
+        phase = "submitting_captcha";
+        startPhaseWatchdog(
+          "submitting_captcha",
+          CAPTCHA_CHECK_TIMEOUT_MS,
+          "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step within ~30s. Try again, or use terminal login: clalit-mcp login",
+        );
+        return answer;
       }
       phase = "captcha";
       lastError = undefined;
-      return waitForAnswer(captchaSlot);
+      const answer = await waitForAnswer(captchaSlot);
+      phase = "submitting_captcha";
+      startPhaseWatchdog(
+        "submitting_captcha",
+        CAPTCHA_CHECK_TIMEOUT_MS,
+        "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step within ~30s. Try again, or use terminal login: clalit-mcp login",
+      );
+      return answer;
     },
     async readOtp(challenge: OtpChallenge) {
+      clearPhaseWatchdog();
       otpMessage = challenge.message;
       if (otpSlot.value !== undefined) {
         phase = "submitting_otp";
@@ -416,7 +467,10 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
       sendHtml(
         res,
         200,
-        waitingPage("Checking CAPTCHA…", "Waiting for Clalit. Next: SMS OTP."),
+        waitingPage(
+          "Checking CAPTCHA…",
+          "Waiting for Clalit (auto-refreshes). Next: SMS OTP — or a clear error within ~30s.",
+        ),
       );
       return;
     }
@@ -630,6 +684,7 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
       const client = await login(idNumber, prompts);
       const session = await client.exportSession();
       await saveSession(session);
+      clearPhaseWatchdog();
       phase = "done";
       lastError = undefined;
       settleExit(0);
@@ -639,6 +694,27 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
         fail(
           "Imperva blocked this host (often Error 16 on datacenter/cloud IPs). Run login --http on your Mac / home network. Never bypass Imperva.",
           3,
+        );
+        return;
+      }
+      if (code === "TIMEOUT" || code === "CAPTCHA_CHECK_TIMEOUT") {
+        fail(
+          "Checking CAPTCHA timed out. Clalit did not respond in time (~30s). Try again, or use terminal login: clalit-mcp login",
+          1,
+        );
+        return;
+      }
+      if (code === "CAPTCHA_REJECTED") {
+        fail(
+          "CAPTCHA was rejected by Clalit. Run login --http again (or terminal: clalit-mcp login), refresh the image, and retry.",
+          1,
+        );
+        return;
+      }
+      if (code === "OTP_PAGE_MISSING") {
+        fail(
+          "Clalit did not open the SMS OTP step after CAPTCHA. Try again, or use terminal login: clalit-mcp login",
+          1,
         );
         return;
       }
@@ -658,6 +734,7 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
     return code;
   } finally {
     clearTimeout(timeout);
+    clearPhaseWatchdog();
     server.closeIdleConnections?.();
     await closeServer(server).catch(() => undefined);
   }

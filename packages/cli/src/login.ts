@@ -40,6 +40,18 @@ export async function runLogin(idNumber?: string): Promise<number> {
       );
       return 3;
     }
+    if (code === "TIMEOUT" || code === "CAPTCHA_CHECK_TIMEOUT") {
+      console.error(
+        "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step in time (~30s).",
+      );
+      console.error("Try again, or use `clalit-mcp login --http` if the image is hard to read in the terminal.");
+      return 1;
+    }
+    if (code === "CAPTCHA_REJECTED" || code === "OTP_PAGE_MISSING") {
+      console.error(err instanceof Error ? err.message : "CAPTCHA check failed.");
+      console.error("Try again (refresh CAPTCHA), or use `clalit-mcp login --http`.");
+      return 1;
+    }
     console.error(err instanceof Error ? err.message : "Login failed.");
     return 1;
   }

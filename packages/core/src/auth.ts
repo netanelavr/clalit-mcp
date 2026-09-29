@@ -24,6 +24,9 @@ import { buildPostBackBody, extractWebFormsState, looksLikeBotChallenge } from "
  * rate-limited, and never as a substitute for login.
  */
 
+/** Wall-clock budget for captcha POST → OTP page (transport also aborts ~30s/request). */
+export const CAPTCHA_CHECK_BUDGET_MS = 30_000;
+
 export interface CaptchaChallenge {
   /** HTML or image hint for the human. Image bytes may be attached by the CLI. */
   pageHtml: string;
@@ -53,6 +56,34 @@ export interface LoginPrompts {
   solveCaptcha(challenge: CaptchaChallenge): Promise<string>;
   /** Return the SMS OTP the human received. */
   readOtp(challenge: OtpChallenge): Promise<string>;
+}
+
+function looksLikeOtpPage(html: string): boolean {
+  return /txtClientOTP|OTPSMSVerification/i.test(html);
+}
+
+function looksLikeCaptchaLoginPage(html: string): boolean {
+  return /tbCaptchaLogin|tbUserId/i.test(html) && /captcha/i.test(html);
+}
+
+function isRedirectStatus(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(onTimeout()), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 /**
@@ -115,25 +146,14 @@ export class ClalitAuth {
       ...(captchaField ? { [captchaField]: captcha } : {}),
     });
 
-    const posted = await this.transport.request(loginUrl, {
-      method: "POST",
-      allowLoginHtml: true,
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body,
-    });
-    const postHtml = await readText(posted);
-    if (looksLikeBotChallenge(postHtml, posted.status)) {
-      throw new AuthenticationError("BOT_CHALLENGE", posted.status);
-    }
+    // Cap the entire captcha-submit → OTP-page path so UI never waits forever.
+    const otpHtml = await withTimeout(
+      this.#advanceToOtpPage(loginUrl, body),
+      CAPTCHA_CHECK_BUDGET_MS,
+      () => new AuthenticationError("CAPTCHA_CHECK_TIMEOUT"),
+    );
 
-    // Expect OTP page
     const otpUrl = PORTAL_ORIGIN + PATHS.otpSms;
-    let otpHtml = postHtml;
-    if (!/txtClientOTP|OTPSMSVerification/i.test(postHtml)) {
-      const otpPage = await this.transport.request(otpUrl, { allowLoginHtml: true });
-      otpHtml = await readText(otpPage);
-    }
-
     const otpState = extractWebFormsState(otpHtml);
     const code = await prompts.readOtp({
       message: "Enter the SMS one-time code from Clalit.",
@@ -160,6 +180,54 @@ export class ClalitAuth {
 
     this.transport.markAuthenticated();
     return this.transport.exportSession();
+  }
+
+  /**
+   * POST captcha + ID, follow redirects / OTP GET, and return OTP page HTML.
+   * Throws CAPTCHA_REJECTED when Clalit redisplays the login CAPTCHA form.
+   */
+  async #advanceToOtpPage(loginUrl: string, body: string): Promise<string> {
+    const otpUrl = PORTAL_ORIGIN + PATHS.otpSms;
+    let current = await this.transport.request(loginUrl, {
+      method: "POST",
+      allowLoginHtml: true,
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    let html = await readText(current);
+    let triedOtpGet = false;
+
+    for (let hops = 0; hops < 8; hops += 1) {
+      if (looksLikeBotChallenge(html, current.status)) {
+        throw new AuthenticationError("BOT_CHALLENGE", current.status);
+      }
+      if (looksLikeOtpPage(html)) {
+        return html;
+      }
+      if (looksLikeCaptchaLoginPage(html)) {
+        throw new AuthenticationError("CAPTCHA_REJECTED", current.status);
+      }
+
+      const location = current.headers.get("location");
+      if (location && isRedirectStatus(current.status)) {
+        const next = location.startsWith("http") ? location : PORTAL_ORIGIN + location;
+        current = await this.transport.request(next, { allowLoginHtml: true });
+        html = await readText(current);
+        continue;
+      }
+
+      // Empty/non-OTP body with no redirect: progress with an explicit OTP GET once.
+      if (!triedOtpGet) {
+        triedOtpGet = true;
+        current = await this.transport.request(otpUrl, { allowLoginHtml: true });
+        html = await readText(current);
+        continue;
+      }
+
+      throw new AuthenticationError("OTP_PAGE_MISSING", current.status);
+    }
+
+    throw new AuthenticationError("OTP_PAGE_MISSING", current.status);
   }
 
   /** Optional soft keep-alive. Safe only with an existing session; never bypasses login. */
