@@ -27,7 +27,7 @@ export async function runLogin(idNumber?: string): Promise<number> {
     const session = await client.exportSession();
     await saveSession(session);
     console.log("Signed in. Session saved under the clalit-mcp config directory (mode 0600).");
-    console.log("Idle sessions expire quickly (~10 minutes). Re-run login when reads fail.");
+    console.log("Idle sessions expire after ~30 minutes of inactivity. Re-run login when reads fail.");
     return 0;
   } catch (err) {
     const code = err && typeof err === "object" && "code" in err ? String((err as { code: string }).code) : "";

@@ -27,8 +27,8 @@ export const LABS_LIST_FIELDS = {
 /** Lab detail opaque query param names (values from list links only). */
 export const LAB_DETAIL_PARAMS = ["s", "d", "ls"] as const;
 
-/** Default soft idle TTL: 10 minutes. Longer idle → expect re-login. */
-export const DEFAULT_IDLE_TTL_MS = 10 * 60_000;
+/** Default soft idle TTL: 30 minutes. Longer idle → expect re-login. */
+export const DEFAULT_IDLE_TTL_MS = 30 * 60_000;
 
 /** Conservative rate: space portal GETs. Do not hammer Imperva-fronted hosts. */
 export const MIN_REQUEST_GAP_MS = 750;

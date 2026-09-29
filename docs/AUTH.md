@@ -24,6 +24,8 @@ The site is fronted by Imperva. Headless datacenter clients often receive **Erro
 
 Same CAPTCHA + SMS OTP flow as terminal login, but prompts run on a **loopback** page (`http://127.0.0.1:<port>/`). The CAPTCHA image is fetched with the login cookie jar and shown in the page when possible. Writes the same `session.json`. Does **not** bypass Imperva or solve CAPTCHA.
 
+Form posts use **303 See Other** (PRG) so Refresh / double-Continue cannot replay a CAPTCHA or OTP POST into a cleared waiter. Answers are buffered if Continue races ahead of the portal prompt. Only one `login --http` may run at a time (lockfile). Loopback session budget: **~30 minutes**.
+
 ## What we store
 
 Config directory (mode `0700`), resolved as:
@@ -42,7 +44,7 @@ Never log cookie values. Never commit this directory.
 
 ## Idle TTL
 
-Portal session TTL was **not measured** in Gate 2. Default soft idle hint: **~10 minutes**. Longer idle → expect `REAUTHENTICATION_REQUIRED` and run `login` again.
+Portal session TTL was **not measured** in Gate 2. Default soft idle hint: **~30 minutes**. Longer idle → expect `REAUTHENTICATION_REQUIRED` and run `login` again.
 
 ## Keep-alive
 

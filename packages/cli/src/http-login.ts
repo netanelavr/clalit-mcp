@@ -4,20 +4,28 @@
  * Starts http://127.0.0.1:<port>/ where the member enters Israeli ID, CAPTCHA
  * (image proxied from the portal when available), and SMS OTP. Writes the same
  * session.json as terminal `login`. Never bypasses Imperva or solves CAPTCHA.
+ *
+ * Flow uses Post/Redirect/Get (303) so Continue never double-POSTs into a
+ * cleared pending slot. CAPTCHA/OTP answers are buffered durably so a submit
+ * that races ahead of solveCaptcha/readOtp still counts.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
+import { open, unlink, mkdir, type FileHandle } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { login, type CaptchaChallenge, type LoginPrompts, type OtpChallenge } from "@clalit/core";
 import { saveSession } from "./store.js";
 
 const LOCAL_HOST = "127.0.0.1" as const;
-export const HTTP_LOGIN_TTL_MS = 10 * 60 * 1000;
+/** Browser login wall-clock budget (ID + CAPTCHA + SMS). */
+export const HTTP_LOGIN_TTL_MS = 30 * 60 * 1000;
 const BODY_LIMIT = 32 * 1024;
 const CLIENT_LABEL = "clalit-mcp";
 
 const LOCK_SCRIPT =
-  'addEventListener("submit",function(e){var f=e.target;if(f.dataset.sent){e.preventDefault();return}f.dataset.sent="1";var b=f.querySelector("button");setTimeout(function(){if(b)b.disabled=true})});addEventListener("pageshow",function(){for(var f of document.forms){delete f.dataset.sent;var b=f.querySelector("button");if(b)b.disabled=false}})';
+  'addEventListener("submit",function(e){var f=e.target;if(!(f instanceof HTMLFormElement))return;if(f.dataset.sent==="1"){e.preventDefault();return}f.dataset.sent="1";var b=f.querySelector("button");if(b){b.disabled=true}});addEventListener("pageshow",function(ev){if(ev.persisted){for(var f of document.forms){delete f.dataset.sent;var b=f.querySelector("button");if(b)b.disabled=false}}})';
 const SCRIPT_HASH = createHash("sha256").update(LOCK_SCRIPT).digest("base64");
 
 export const PAGE_HEADERS: Record<string, string> = {
@@ -119,7 +127,7 @@ export function donePage(): string {
     "Signed in",
     `<h1>Signed in</h1>
 <p>Session saved under the clalit-mcp config directory (mode 0600). You can close this tab.</p>
-<p class="note">Idle sessions expire quickly (~10 minutes). Re-run login when reads fail.</p>`,
+<p class="note">Idle sessions expire after ~30 minutes of inactivity. Re-run login when reads fail.</p>`,
   );
 }
 
@@ -132,9 +140,23 @@ export function errorPage(message: string): string {
   );
 }
 
+export function waitingPage(title: string, body: string): string {
+  return layout(title, `<h1>${escapeHtml(title)}</h1><p class="note">${escapeHtml(body)}</p>`);
+}
+
 function sendHtml(res: ServerResponse, status: number, html: string, extra: Record<string, string> = {}): void {
   res.writeHead(status, { ...PAGE_HEADERS, ...extra });
   res.end(html);
+}
+
+/** PRG: POST → 303 → GET so Refresh/double-Continue cannot replay the POST. */
+function redirectSeeOther(res: ServerResponse, location = "/"): void {
+  res.writeHead(303, {
+    location,
+    "cache-control": "no-store",
+    "content-type": "text/plain; charset=utf-8",
+  });
+  res.end("Redirecting…\n");
 }
 
 async function readBody(req: IncomingMessage): Promise<string | null> {
@@ -155,7 +177,15 @@ function closeServer(server: Server): Promise<void> {
   });
 }
 
-type Phase = "id" | "captcha" | "otp" | "done" | "failed";
+type Phase =
+  | "id"
+  | "loading_captcha"
+  | "captcha"
+  | "submitting_captcha"
+  | "otp"
+  | "submitting_otp"
+  | "done"
+  | "failed";
 
 interface Pending<T> {
   resolve: (value: T) => void;
@@ -172,17 +202,130 @@ function openBrowser(url: string): void {
   }
 }
 
+function configDir(): string {
+  if (process.env.CLALIT_CONFIG_DIR) return process.env.CLALIT_CONFIG_DIR;
+  if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, "clalit-mcp");
+  return join(homedir(), ".config", "clalit-mcp");
+}
+
+function httpLoginLockPath(): string {
+  return join(configDir(), "http-login.lock");
+}
+
+/**
+ * Exclusive lock so a second `login --http` cannot open another loopback
+ * server that races the same browser tabs / clears in-flight CAPTCHA state.
+ */
+async function tryAcquireLockFile(path: string): Promise<FileHandle | null> {
+  try {
+    return await open(path, "wx", 0o600);
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? String((err as { code: string }).code) : "";
+    if (code === "EEXIST") return null;
+    throw err;
+  }
+}
+
+export async function acquireHttpLoginLock(): Promise<{ release: () => Promise<void> } | null> {
+  const path = httpLoginLockPath();
+  await mkdir(configDir(), { recursive: true, mode: 0o700 });
+  let handle = await tryAcquireLockFile(path);
+  if (!handle) {
+    // Stale lock from a crashed previous login --http: reclaim if pid is gone.
+    try {
+      const { readFile } = await import("node:fs/promises");
+      const raw = await readFile(path, "utf8");
+      const pid = Number(raw.split("\n")[0]);
+      if (Number.isInteger(pid) && pid > 0) {
+        try {
+          process.kill(pid, 0);
+          return null; // still alive
+        } catch {
+          await unlink(path).catch(() => undefined);
+          handle = await tryAcquireLockFile(path);
+        }
+      } else {
+        await unlink(path).catch(() => undefined);
+        handle = await tryAcquireLockFile(path);
+      }
+    } catch {
+      return null;
+    }
+  }
+  if (!handle) return null;
+  await handle.writeFile(`${process.pid}\n${Date.now()}\n`, "utf8");
+  let released = false;
+  return {
+    async release() {
+      if (released) return;
+      released = true;
+      await handle!.close().catch(() => undefined);
+      await unlink(path).catch(() => undefined);
+    },
+  };
+}
+
+/**
+ * Deliver a buffered answer to a waiter, or store it until the waiter arrives.
+ * Used so CAPTCHA/OTP Continue can win a race against solveCaptcha/readOtp.
+ */
+export function takeOrWait(
+  slot: { value?: string; pending?: Pending<string> },
+  next: string,
+): void {
+  if (slot.pending) {
+    const p = slot.pending;
+    slot.pending = undefined;
+    slot.value = undefined;
+    p.resolve(next);
+    return;
+  }
+  slot.value = next;
+}
+
+export function waitForAnswer(slot: { value?: string; pending?: Pending<string> }): Promise<string> {
+  if (slot.value !== undefined) {
+    const v = slot.value;
+    slot.value = undefined;
+    return Promise.resolve(v);
+  }
+  return new Promise<string>((resolve, reject) => {
+    slot.pending = { resolve, reject };
+  });
+}
+
 export interface RunLoginHttpOptions {
   idNumber?: string;
   port?: number;
   open?: boolean;
   ttlMs?: number;
+  /** Test seam: skip the exclusive lockfile. */
+  skipLock?: boolean;
 }
 
 /**
  * Run interactive login via a loopback HTTP page. Returns a process-style exit code.
  */
 export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<number> {
+  const lock = options.skipLock ? { release: async () => undefined } : await acquireHttpLoginLock();
+  if (!lock) {
+    console.error(
+      "Another clalit-mcp login --http is already running on this machine.",
+    );
+    console.error(
+      "Finish or cancel that sign-in first. A second browser login would clear the CAPTCHA/OTP step.",
+    );
+    return 1;
+  }
+
+  try {
+    return await runLoginHttpUnlocked(options);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<number> {
   const csrf = randomBytes(16).toString("hex");
   const ttlMs = options.ttlMs ?? HTTP_LOGIN_TTL_MS;
   let phase: Phase = "id";
@@ -192,22 +335,29 @@ export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<n
   let captchaType = "image/png";
   let otpMessage = "Enter the SMS one-time code from Clalit.";
   let idNumber = options.idNumber?.trim() ?? "";
+  let browserOpened = false;
 
-  let idPending: Pending<string> | undefined;
-  let captchaPending: Pending<string> | undefined;
-  let otpPending: Pending<string> | undefined;
+  const idSlot: { value?: string; pending?: Pending<string> } = {};
+  const captchaSlot: { value?: string; pending?: Pending<string> } = {};
+  const otpSlot: { value?: string; pending?: Pending<string> } = {};
+
   let settleExit!: (code: number) => void;
+  let exitSettled = false;
   const finished = new Promise<number>((resolve) => {
-    settleExit = resolve;
+    settleExit = (code) => {
+      if (exitSettled) return;
+      exitSettled = true;
+      resolve(code);
+    };
   });
 
   const fail = (message: string, code = 1): void => {
     phase = "failed";
     lastError = message;
-    idPending?.reject(new Error(message));
-    captchaPending?.reject(new Error(message));
-    otpPending?.reject(new Error(message));
-    idPending = captchaPending = otpPending = undefined;
+    idSlot.pending?.reject(new Error(message));
+    captchaSlot.pending?.reject(new Error(message));
+    otpSlot.pending?.reject(new Error(message));
+    idSlot.pending = captchaSlot.pending = otpSlot.pending = undefined;
     settleExit(code);
   };
 
@@ -219,20 +369,70 @@ export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<n
         hasImage: Boolean(captchaBytes && captchaBytes.byteLength > 0),
         ...(challenge.captchaFieldName ? { fieldHint: challenge.captchaFieldName } : {}),
       };
+      // If Continue already buffered an answer, consume it without flipping UI back.
+      if (captchaSlot.value !== undefined) {
+        phase = "submitting_captcha";
+        lastError = undefined;
+        return waitForAnswer(captchaSlot);
+      }
       phase = "captcha";
       lastError = undefined;
-      return new Promise<string>((resolve, reject) => {
-        captchaPending = { resolve, reject };
-      });
+      return waitForAnswer(captchaSlot);
     },
     async readOtp(challenge: OtpChallenge) {
       otpMessage = challenge.message;
+      if (otpSlot.value !== undefined) {
+        phase = "submitting_otp";
+        lastError = undefined;
+        return waitForAnswer(otpSlot);
+      }
       phase = "otp";
       lastError = undefined;
-      return new Promise<string>((resolve, reject) => {
-        otpPending = { resolve, reject };
-      });
+      return waitForAnswer(otpSlot);
     },
+  };
+
+  const renderCurrent = (res: ServerResponse): void => {
+    if (phase === "done") {
+      sendHtml(res, 200, donePage());
+      return;
+    }
+    if (phase === "failed") {
+      sendHtml(res, 200, errorPage(lastError ?? "Sign-in failed."));
+      return;
+    }
+    if (phase === "loading_captcha") {
+      sendHtml(
+        res,
+        200,
+        waitingPage(
+          "Loading CAPTCHA…",
+          "Fetching the Clalit login page on this machine. If Imperva blocks this host, sign-in will stop.",
+        ),
+      );
+      return;
+    }
+    if (phase === "submitting_captcha") {
+      sendHtml(
+        res,
+        200,
+        waitingPage("Checking CAPTCHA…", "Waiting for Clalit. Next: SMS OTP."),
+      );
+      return;
+    }
+    if (phase === "submitting_otp") {
+      sendHtml(res, 200, waitingPage("Finishing sign-in…", "Saving the session file."));
+      return;
+    }
+    if (phase === "captcha") {
+      sendHtml(res, 200, captchaPage(csrf, { ...captchaMeta, error: lastError }));
+      return;
+    }
+    if (phase === "otp") {
+      sendHtml(res, 200, otpPage(csrf, otpMessage, lastError));
+      return;
+    }
+    sendHtml(res, 200, idPage(csrf, lastError, idNumber || undefined));
   };
 
   const server = createServer((req, res) => {
@@ -264,11 +464,7 @@ export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<n
         }
 
         if (method === "GET") {
-          if (phase === "done") sendHtml(res, 200, donePage());
-          else if (phase === "failed") sendHtml(res, 200, errorPage(lastError ?? "Sign-in failed."));
-          else if (phase === "captcha") sendHtml(res, 200, captchaPage(csrf, { ...captchaMeta, error: lastError }));
-          else if (phase === "otp") sendHtml(res, 200, otpPage(csrf, otpMessage, lastError));
-          else sendHtml(res, 200, idPage(csrf, lastError, idNumber || undefined));
+          renderCurrent(res);
           return;
         }
 
@@ -285,7 +481,9 @@ export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<n
         }
         const fields = new URLSearchParams(body);
         if (fields.get("csrf") !== csrf) {
-          sendHtml(res, 400, errorPage("This sign-in form expired. Close the tab and run login --http again."));
+          lastError = "This sign-in form expired (CSRF mismatch). Start login --http again.";
+          phase = "failed";
+          redirectSeeOther(res);
           return;
         }
         const step = fields.get("step");
@@ -294,25 +492,27 @@ export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<n
           const id = (fields.get("id") ?? "").trim();
           if (!/^\d{1,9}$/.test(id)) {
             lastError = "Enter a valid Israeli ID number (digits only).";
-            sendHtml(res, 200, idPage(csrf, lastError));
+            phase = "id";
+            redirectSeeOther(res);
             return;
           }
           idNumber = id;
           lastError = undefined;
-          if (idPending) {
-            const p = idPending;
-            idPending = undefined;
-            p.resolve(id);
+          // Idempotent: already past ID (e.g. second tab / double Continue).
+          if (
+            phase === "loading_captcha" ||
+            phase === "captcha" ||
+            phase === "submitting_captcha" ||
+            phase === "otp" ||
+            phase === "submitting_otp" ||
+            phase === "done"
+          ) {
+            redirectSeeOther(res);
+            return;
           }
-          // Show a waiting page while portal login + captcha fetch runs.
-          sendHtml(
-            res,
-            200,
-            layout(
-              "Loading CAPTCHA",
-              `<h1>Loading CAPTCHA…</h1><p class="note">Fetching the Clalit login page on this machine. If Imperva blocks this host, sign-in will stop.</p><meta http-equiv="refresh" content="1"/>`,
-            ),
-          );
+          phase = "loading_captcha";
+          takeOrWait(idSlot, id);
+          redirectSeeOther(res);
           return;
         }
 
@@ -320,25 +520,32 @@ export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<n
           const text = (fields.get("captcha") ?? "").trim();
           if (!text) {
             lastError = "Enter the CAPTCHA text.";
-            sendHtml(res, 200, captchaPage(csrf, { ...captchaMeta, error: lastError }));
+            if (phase !== "captcha" && phase !== "submitting_captcha") phase = "captcha";
+            redirectSeeOther(res);
             return;
           }
-          if (!captchaPending || phase !== "captcha") {
-            sendHtml(res, 200, errorPage("CAPTCHA step is not active. Restart login --http."));
+          // Already accepted / in flight — PRG back to waiting UI (not fatal).
+          if (phase === "submitting_captcha" || phase === "otp" || phase === "submitting_otp" || phase === "done") {
+            redirectSeeOther(res);
             return;
           }
-          const p = captchaPending;
-          captchaPending = undefined;
-          lastError = undefined;
-          p.resolve(text);
-          sendHtml(
-            res,
-            200,
-            layout(
-              "Sending…",
-              `<h1>Checking CAPTCHA…</h1><p class="note">Waiting for Clalit. Next: SMS OTP.</p><meta http-equiv="refresh" content="1"/>`,
-            ),
-          );
+          if (phase === "failed") {
+            redirectSeeOther(res);
+            return;
+          }
+          // Buffer even if solveCaptcha has not installed a waiter yet (race),
+          // or if a prior Continue already stored the same answer.
+          if (phase === "captcha" || phase === "loading_captcha" || phase === "id") {
+            lastError = undefined;
+            phase = "submitting_captcha";
+            takeOrWait(captchaSlot, text);
+            redirectSeeOther(res);
+            return;
+          }
+          // Wrong step (e.g. OTP screen): stay on current step with a soft error.
+          lastError =
+            "CAPTCHA Continue was ignored because that step is not waiting for input anymore. Use the form shown on this page, or restart login --http.";
+          redirectSeeOther(res);
           return;
         }
 
@@ -346,29 +553,33 @@ export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<n
           const code = (fields.get("otp") ?? "").trim();
           if (!/^\d{4,8}$/.test(code)) {
             lastError = "Enter the SMS code (4–8 digits).";
-            sendHtml(res, 200, otpPage(csrf, otpMessage, lastError));
+            if (phase !== "otp" && phase !== "submitting_otp") phase = "otp";
+            redirectSeeOther(res);
             return;
           }
-          if (!otpPending || phase !== "otp") {
-            sendHtml(res, 200, errorPage("OTP step is not active. Restart login --http."));
+          if (phase === "submitting_otp" || phase === "done") {
+            redirectSeeOther(res);
             return;
           }
-          const p = otpPending;
-          otpPending = undefined;
-          lastError = undefined;
-          p.resolve(code);
-          sendHtml(
-            res,
-            200,
-            layout(
-              "Finishing…",
-              `<h1>Finishing sign-in…</h1><p class="note">Saving the session file.</p><meta http-equiv="refresh" content="1"/>`,
-            ),
-          );
+          if (phase === "failed") {
+            redirectSeeOther(res);
+            return;
+          }
+          if (phase === "otp" || phase === "submitting_captcha" || phase === "captcha") {
+            lastError = undefined;
+            phase = "submitting_otp";
+            takeOrWait(otpSlot, code);
+            redirectSeeOther(res);
+            return;
+          }
+          lastError =
+            "SMS OTP Continue was ignored because that step is not waiting for input anymore. Use the form shown on this page, or restart login --http.";
+          redirectSeeOther(res);
           return;
         }
 
-        sendHtml(res, 400, errorPage("Unknown form step."));
+        lastError = "Unknown form step.";
+        redirectSeeOther(res);
       } catch {
         if (!res.headersSent) sendHtml(res, 500, errorPage("The sign-in step could not be completed."));
         else res.end();
@@ -394,31 +605,33 @@ export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<n
   const url = `http://${LOCAL_HOST}:${address.port}/`;
   console.error(`Open this page on this machine to sign in (CAPTCHA + SMS OTP):`);
   console.error(url);
-  console.error(`Loopback only (${LOCAL_HOST}). Expires in ${Math.round(ttlMs / 60000)} minutes. No Imperva/CAPTCHA bypass.`);
-  if (options.open !== false) openBrowser(url);
+  console.error(
+    `Loopback only (${LOCAL_HOST}). Expires in ${Math.round(ttlMs / 60000)} minutes. No Imperva/CAPTCHA bypass.`,
+  );
+  if (options.open !== false && !browserOpened) {
+    browserOpened = true;
+    openBrowser(url);
+  }
 
   const timeout = setTimeout(() => {
-    fail("No browser sign-in finished within the time limit.", 1);
+    fail("No browser sign-in finished within the time limit. Run login --http again.", 1);
   }, ttlMs);
 
-  // Drive portal login once we have an ID (from --id or the form).
   const loginTask = (async () => {
     try {
       if (!idNumber) {
-        idNumber = await new Promise<string>((resolve, reject) => {
-          idPending = { resolve, reject };
-        });
-      } else if (!idPending) {
-        // Preset id: still wait until the user submits the id form (or auto-kick).
-        // Auto-start immediately when --id was provided and user may skip re-entry:
-        // still show the page; submission resolves idPending if waiting.
-        // If id already set via --id, start login right away without waiting for form.
+        phase = "id";
+        idNumber = await waitForAnswer(idSlot);
+      } else {
+        // Preset --id: start portal login immediately; UI may still show ID briefly.
+        phase = "loading_captcha";
       }
 
       const client = await login(idNumber, prompts);
       const session = await client.exportSession();
       await saveSession(session);
       phase = "done";
+      lastError = undefined;
       settleExit(0);
     } catch (err) {
       const code = err && typeof err === "object" && "code" in err ? String((err as { code: string }).code) : "";
@@ -437,7 +650,7 @@ export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<n
     const code = await finished;
     clearTimeout(timeout);
     await loginTask.catch(() => undefined);
-    // Brief pause so the browser can refresh to the done/error page.
+    // Brief pause so the browser can follow the last 303 to done/error.
     await new Promise((r) => setTimeout(r, 800));
     if (code === 0) {
       console.log("Signed in. Session saved under the clalit-mcp config directory (mode 0600).");

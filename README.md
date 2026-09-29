@@ -40,7 +40,7 @@ Clalit e-services sit behind **Imperva**. Interactive login is:
 
 Cloud agent boxes and datacenter IPs typically fail at step 0 with Imperva Error 16. **There is no supported workaround** in this package. Log in on your Mac / home network, then use the saved session for CLI/MCP reads on that same machine.
 
-Optional soft keep-alive: `RefreshSession.aspx` (observed in HAR). Idle TTL is **unmeasured**; treat ~10 minutes idle as "may need login again."
+Optional soft keep-alive: `RefreshSession.aspx` (observed in HAR). Idle TTL is **unmeasured**; treat ~30 minutes idle as "may need login again."
 
 ## Install
 
