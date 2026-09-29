@@ -113,9 +113,9 @@ export class ClalitAuth {
     }
 
     const state = extractWebFormsState(html);
-    const captchaField =
-      /name="([^"]*Captcha[^"]*)"/i.exec(html)?.[1] ??
-      /name="([^"]*BotDetect[^"]*)"/i.exec(html)?.[1];
+    // Hint only. The typed answer must go to tbCaptchaLogin, never a BotDetect
+    // id (BDC_VCID_…captchaLogin matches /Captcha/ and would be overwritten).
+    const captchaField = /name="tbCaptchaLogin"/i.test(html) ? "tbCaptchaLogin" : undefined;
 
     const captchaImageUrl = extractCaptchaImageUrl(html);
     let captchaImage: CaptchaChallenge["captchaImage"];
@@ -143,7 +143,6 @@ export class ClalitAuth {
     const body = buildPostBackBody(state, {
       tbUserId: idNumber,
       tbCaptchaLogin: captcha,
-      ...(captchaField ? { [captchaField]: captcha } : {}),
     });
 
     // Cap the entire captcha-submit → OTP-page path so UI never waits forever.
