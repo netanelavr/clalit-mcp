@@ -1,0 +1,22 @@
+{
+  "name": "@clalit/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local stdio MCP transport for personal Clalit lab reads.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/netanelavr/clalit-health.git",
+    "directory": "packages/mcp"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "type": "module",
+  "dependencies": {
+    "@clalit/core": "0.1.0",
+    "@clalit/cli": "0.1.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.2"
+  }
+}

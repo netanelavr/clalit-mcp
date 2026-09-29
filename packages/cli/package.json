@@ -1,0 +1,23 @@
+{
+  "name": "@clalit/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private-terminal CLI for personal Clalit lab reads.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/netanelavr/clalit-health.git",
+    "directory": "packages/cli"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "type": "module",
+  "exports": {
+    "./store": "./src/store.ts",
+    "./login": "./src/login.ts"
+  },
+  "dependencies": {
+    "@clalit/core": "0.1.0"
+  }
+}

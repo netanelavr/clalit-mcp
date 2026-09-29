@@ -1,0 +1,142 @@
+# Clalit Health
+
+**Read your own Clalit laboratory results from a CLI or an AI assistant (MCP).**
+
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Unofficial TypeScript library, CLI, and MCP server for **your own** Clalit Health Services (שירותי בריאות כללית) e-services lab records.
+
+> **Not affiliated with Clalit.** This is an independent open-source project. It is not a Clalit product, not endorsed by Clalit, and not a substitute for the official portal or clinical advice.
+
+## What works in v0.1 (MVP)
+
+| Capability | Status |
+| --- | --- |
+| `listLabs` — laboratory history list | Implemented (HTML parse + fixtures) |
+| `getLabResult` — one result detail | Implemented (HTML parse + fixtures) |
+| `getLabDocument` — original PDF | Implemented (POST download + fixtures) |
+| Interactive login (CAPTCHA + SMS OTP) | Designed + stubbed; **live on your Mac only** |
+| Prescriptions (מרשמים) | Roadmap — needs HAR before endpoints |
+| Referrals (הפניות) | Roadmap — needs HAR before endpoints |
+
+Offline unit tests parse synthetic ASP.NET WebForms HTML fixtures. Live portal calls require a residential/user machine session (see below).
+
+## Soft-amber terms of use
+
+- **Own account only.** Never use this against someone else's record. Family / linked-member switching is refused.
+- **Read-only.** No booking, payments, profile writes, or prescription requests.
+- **No CAPTCHA / bot / Imperva bypass.** You solve CAPTCHA and enter the SMS OTP yourself. Datacenter and many cloud IPs get Imperva **Error 16**; that is expected.
+- **Rate limits.** The client spaces requests (~750ms+). Do not hammer `e-services.clalit.co.il`.
+- **Session cookies are PHI-adjacent secrets.** Stored mode `0600` under your config dir. Never commit them, paste them into issues, or share them with an assistant indiscriminately.
+- Portal terms (for awareness): Clalit's online terms PDF is linked from the portal nav (observed path hint `clalit_on_line_terms_2025.pdf`). Read Clalit's own terms; this project does not grant extra rights.
+
+## Why login must be on your machine
+
+Clalit e-services sit behind **Imperva**. Interactive login is:
+
+1. ID + **CAPTCHA** (`infootplogin.aspx`)
+2. **SMS OTP** (`OTPSMSVerification.aspx`)
+3. Portal session cookies
+
+Cloud agent boxes and datacenter IPs typically fail at step 0 with Imperva Error 16. **There is no supported workaround** in this package. Log in on your Mac / home network, then use the saved session for CLI/MCP reads on that same machine.
+
+Optional soft keep-alive: `RefreshSession.aspx` (observed in HAR). Idle TTL is **unmeasured**; treat ~10 minutes idle as "may need login again."
+
+## Install
+
+```sh
+git clone https://github.com/netanelavr/clalit-health.git
+cd clalit-health
+npm install
+npm test
+```
+
+Global CLI (after publish / from checkout with a bin shim):
+
+```sh
+npx tsx packages/cli/src/main.ts help
+```
+
+## Sign in (Mac / residential)
+
+```sh
+npx tsx packages/cli/src/main.ts login
+npx tsx packages/cli/src/main.ts labs --json
+npx tsx packages/cli/src/main.ts lab --ref <token-from-labs> --json
+npx tsx packages/cli/src/main.ts lab-document --ref <token> --out result.pdf
+```
+
+See [docs/LIVE-VERIFY.md](docs/LIVE-VERIFY.md) for the first live login checklist.
+
+## MCP
+
+```json
+{
+  "mcpServers": {
+    "clalit-health": {
+      "command": "npx",
+      "args": ["tsx", "packages/cli/src/main.ts", "mcp"],
+      "cwd": "/absolute/path/to/clalit-health"
+    }
+  }
+}
+```
+
+Tools: `list_labs`, `get_lab_result`, `get_lab_document`. You must already have a local session from `login`.
+
+## Library
+
+```ts
+import { login, connect } from "@clalit/core";
+
+const client = await login(idNumber, {
+  solveCaptcha: async () => prompt("CAPTCHA"),
+  readOtp: async () => prompt("SMS OTP"),
+});
+
+const labs = await client.listLabs();
+const detail = await client.getLabResult(labs[0]!.refToken!);
+```
+
+## Architecture (mirrors maccabi-health shape)
+
+```
+packages/
+  core/   # transport, auth design, WebForms helpers, labs parsers
+  cli/    # login prompts, session store, commands
+  mcp/    # stdio MCP tools
+```
+
+Upstream surface is **ASP.NET WebForms HTML** (`__VIEWSTATE` / `__EVENTVALIDATION` / `__doPostBack`), not a public JSON API. Evidence: [docs/API-SOURCES.md](docs/API-SOURCES.md) and the redacted Gate 2 map under `docs/research/`.
+
+## Roadmap
+
+1. **Now:** labs MVP + offline fixtures + Mac-local live verify.
+2. **Next (after HAR):** prescriptions (מרשמים) — stubs only until endpoints are observed.
+3. **Next (after HAR):** referrals (הפניות) — stubs only until endpoints are observed.
+4. Harden session TTL measurement, keep-alive policy, and richer analyte table heuristics from live HTML samples (sanitized fixtures welcome).
+
+Do **not** invent prescription/referral endpoints without a redacted HAR / HTML capture.
+
+## Privacy
+
+Every record is real medical data once you log into a live account. Anything you hand to an assistant becomes part of that model's context.
+
+## Something not working?
+
+Prefer a pull request with a **sanitized** HTML fixture over an issue that pastes PHI. Never paste ID numbers, cookies, session files, SMS codes, or full HAR files into GitHub.
+
+Security problems → [SECURITY.md](SECURITY.md).
+
+## Docs
+
+- [Authentication](docs/AUTH.md)
+- [Capabilities](docs/CAPABILITIES.md)
+- [CLI](docs/CLI.md)
+- [MCP](docs/MCP.md)
+- [Live verify (Mac)](docs/LIVE-VERIFY.md)
+- [API sources](docs/API-SOURCES.md)
+- [Contributing](CONTRIBUTING.md)
+- [MIT license](LICENSE)
+
+Inspired by the package layout of [orenyomtov/maccabi-health](https://github.com/orenyomtov/maccabi-health) (core → CLI → MCP). Clalit uses a different upstream (WebForms HTML vs Maccabi's JSON APIs).

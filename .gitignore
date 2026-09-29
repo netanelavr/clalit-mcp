@@ -1,0 +1,39 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Session and auth material (never commit)
+session.json
+pending-login.json
+*.cookies
+.cookies/
+.config-clalit/
+
+# Private browser and network captures
+captures/
+browser-captures/
+network-captures/
+*.har
+*.pcap
+*.pcapng
+
+# Personal health data and exports
+private/
+health-exports/
+medical-exports/
+exports/
+*.pdf
+
+# Local release artifacts and registry config
+*.tgz
+.npmrc
+
+# Logs and local tooling
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# Internal research / handoffs
+/.internal/

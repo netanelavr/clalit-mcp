@@ -1,0 +1,55 @@
+{
+  "gate2_status": "partial_pass_from_har",
+  "hosts_allowlist_candidates": [
+    "e-services.clalit.co.il",
+    "accessibility.clalit.co.il"
+  ],
+  "surface": "ASP.NET WebForms (__VIEWSTATE / __EVENTVALIDATION / __doPostBack), mostly text/html; PDF via POST returning application/octet-stream",
+  "auth_observed": {
+    "steps": [
+      "POST /onlineweb/general/infootplogin.aspx (fields include tbUserId, tbCaptchaLogin, BotDetect captcha id field)",
+      "GET/POST /OnlineWeb/General/OTPSMSVerification.aspx (field txtClientOTP)",
+      "GET /OnlineWeb/General/Login.aspx (302 redirect observed)"
+    ],
+    "notes": "Interactive user+CAPTCHA+SMS OTP. No JSON auth API observed in this HAR."
+  },
+  "labs": {
+    "list": "GET /OnlineWeb/Services/Labs/LabsTestList.aspx",
+    "list_date_fields": [
+      "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtFromDate",
+      "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtToDate"
+    ],
+    "list_grid": "LabsHistory1$gvTestListInDateRange (pager/sort via __doPostBack)",
+    "detail": "GET /OnlineWeb/Services/Labs/LabTestDetails.aspx",
+    "detail_query_param_names": [
+      "s",
+      "d",
+      "ls"
+    ],
+    "document": "POST same LabTestDetails.aspx with __EVENTTARGET (left-menu download control) -> 200 application/octet-stream attachment PDF",
+    "compare_links_param_names": [
+      "labId",
+      "labName",
+      "t"
+    ]
+  },
+  "session": {
+    "refresh_endpoint": "GET /OnlineWeb/ServicesForAll/RefreshSession.aspx (observed 4x, 200, small HTML)",
+    "ttl_unmeasured": true
+  },
+  "owner_scope": {
+    "family_slider_fields_present": [
+      "FamilySliderControl21$au",
+      "FamilySliderControl21$cu"
+    ],
+    "mvp_rule": "never set family switch; only follow detail links from own LabsTestList"
+  },
+  "terms_hint_in_nav": "/he/info/services/Documents/clalit_on_line_terms_2025.pdf",
+  "not_in_har": [
+    "stable JSON schemas",
+    "silent renewal proof",
+    "session TTL",
+    "owner-id bootstrap field name",
+    "enumerability test"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@clalit/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Clalit account client (ASP.NET WebForms HTML parse) used by the CLI and MCP server.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/netanelavr/clalit-health.git",
+    "directory": "packages/core"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "tough-cookie": "^5.1.2"
+  }
+}

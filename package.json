@@ -1,0 +1,59 @@
+{
+  "name": "clalit-health",
+  "version": "0.1.0",
+  "description": "Node.js library, CLI, and MCP server for reading your own Clalit Health Services lab records.",
+  "mcpName": "io.github.netanelavr/clalit-health",
+  "keywords": [
+    "clalit",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "health-records",
+    "healthcare",
+    "israel",
+    "cli",
+    "library",
+    "labs"
+  ],
+  "license": "MIT",
+  "author": "Netanel Avraham (https://github.com/netanelavr)",
+  "homepage": "https://github.com/netanelavr/clalit-health#readme",
+  "bugs": {
+    "url": "https://github.com/netanelavr/clalit-health/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/netanelavr/clalit-health.git"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test",
+    "cli": "tsx packages/cli/src/main.ts",
+    "mcp:local": "tsx packages/cli/src/main.ts mcp"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  },
+  "bin": {
+    "clalit-health": "./packages/cli/src/main.ts"
+  },
+  "files": [
+    "packages/*/src",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ]
+}
