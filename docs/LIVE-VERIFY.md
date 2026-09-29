@@ -5,11 +5,15 @@ The shared agent box **cannot** complete Clalit login (Imperva Error 16). First 
 ## Checklist
 
 1. Clone `https://github.com/netanelavr/clalit-mcp`, `npm install`, `npm test` (all offline tests green).
-2. On your Mac (home/residential network, normal browser already works for Clalit):
+2. On your Mac (home/residential network, normal browser already works for Clalit). Prefer the loopback HTTP UI so you can see the CAPTCHA image:
+   ```sh
+   npx tsx packages/cli/src/main.ts login --http
+   ```
+   Or terminal prompts only:
    ```sh
    npx tsx packages/cli/src/main.ts login
    ```
-3. Solve CAPTCHA when prompted; enter SMS OTP.
+3. In the browser page (or terminal): enter Israeli ID, type the CAPTCHA shown from the portal (not solved automatically), then the SMS OTP. Same `session.json` either way.
 4. Confirm session file exists: `~/.config/clalit-mcp/session.json` (mode `0600`).
 5. Run:
    ```sh
@@ -28,7 +32,7 @@ The shared agent box **cannot** complete Clalit login (Imperva Error 16). First 
 
 | Symptom | Meaning |
 | --- | --- |
-| Imperva Error 16 / `BOT_CHALLENGE` | Wrong network or automation fingerprint — use Mac UI network, no VPN datacenter |
+| Imperva Error 16 / `BOT_CHALLENGE` | Wrong network or automation fingerprint — use Mac UI network, no VPN datacenter. `login --http` does **not** bypass Imperva |
 | `REAUTHENTICATION_REQUIRED` | Idle/session expired — `login` again |
 | Empty labs list | Account has no rows in range, or date filter format mismatch |
 | `NO_DOCUMENT` / `NOT_PDF` | Portal control id differs — capture sanitized detail HTML |

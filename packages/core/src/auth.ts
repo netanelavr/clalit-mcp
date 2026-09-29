@@ -2,7 +2,8 @@ import type { SerializedCookieJar } from "tough-cookie";
 import { PATHS, PORTAL_ORIGIN } from "./constants.js";
 import { AuthenticationError } from "./errors.js";
 import type { ClalitSession } from "./session.js";
-import { ClalitTransport, readText } from "./transport.js";
+import { extractCaptchaImageUrl } from "./captcha.js";
+import { ClalitTransport, readBytes, readText } from "./transport.js";
 import { buildPostBackBody, extractWebFormsState, looksLikeBotChallenge } from "./webforms.js";
 
 /**
@@ -29,6 +30,10 @@ export interface CaptchaChallenge {
   /** BotDetect / captcha field name if detected. */
   captchaFieldName?: string;
   viewStatePresent: boolean;
+  /** Absolute CAPTCHA image URL on the portal (same cookie jar), when detected. */
+  captchaImageUrl?: string;
+  /** Image bytes fetched with the login session, when available. */
+  captchaImage?: { bytes: Uint8Array; contentType: string };
 }
 
 export interface OtpChallenge {
@@ -81,10 +86,27 @@ export class ClalitAuth {
       /name="([^"]*Captcha[^"]*)"/i.exec(html)?.[1] ??
       /name="([^"]*BotDetect[^"]*)"/i.exec(html)?.[1];
 
+    const captchaImageUrl = extractCaptchaImageUrl(html);
+    let captchaImage: CaptchaChallenge["captchaImage"];
+    if (captchaImageUrl) {
+      try {
+        const imgRes = await this.transport.request(captchaImageUrl, { allowLoginHtml: true });
+        const bytes = await readBytes(imgRes, 500_000);
+        const contentType = imgRes.headers.get("content-type") ?? "image/png";
+        if (imgRes.ok && bytes.byteLength > 0 && !looksLikeBotChallenge(Buffer.from(bytes).toString("latin1"), imgRes.status)) {
+          captchaImage = { bytes, contentType: contentType.split(";")[0]!.trim() || "image/png" };
+        }
+      } catch {
+        /* Image is best-effort; human can still type from portal browser. */
+      }
+    }
+
     const captcha = await prompts.solveCaptcha({
       pageHtml: html,
       ...(captchaField ? { captchaFieldName: captchaField } : {}),
       viewStatePresent: Boolean(state.viewState),
+      ...(captchaImageUrl ? { captchaImageUrl } : {}),
+      ...(captchaImage ? { captchaImage } : {}),
     });
 
     const body = buildPostBackBody(state, {

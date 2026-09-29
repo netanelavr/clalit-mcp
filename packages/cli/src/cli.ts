@@ -2,6 +2,7 @@ import { connect, decodeLabRef } from "@clalit/core";
 import { writeFile } from "node:fs/promises";
 import { help } from "./commands.js";
 import { runLogin } from "./login.js";
+import { runLoginHttp } from "./http-login.js";
 import { clearSession, loadSession } from "./store.js";
 
 function flag(args: string[], name: string): string | undefined {
@@ -32,6 +33,19 @@ export async function runCli(args: string[]): Promise<number> {
 
   switch (cmd) {
     case "login":
+      if (has(rest, "http")) {
+        const portRaw = flag(rest, "port");
+        const port = portRaw ? Number(portRaw) : undefined;
+        if (portRaw && (!Number.isInteger(port) || port! < 0 || port! > 65535)) {
+          console.error("Usage: clalit-mcp login --http [--id ID] [--port PORT] [--no-open]");
+          return 2;
+        }
+        return runLoginHttp({
+          idNumber: flag(rest, "id"),
+          ...(port !== undefined ? { port } : {}),
+          open: !has(rest, "no-open"),
+        });
+      }
       return runLogin(flag(rest, "id"));
     case "logout":
       await clearSession();

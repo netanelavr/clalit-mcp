@@ -3,6 +3,7 @@
 ```sh
 npx tsx packages/cli/src/main.ts help
 npx tsx packages/cli/src/main.ts login
+npx tsx packages/cli/src/main.ts login --http
 npx tsx packages/cli/src/main.ts labs --json
 npx tsx packages/cli/src/main.ts lab --ref TOKEN --json
 npx tsx packages/cli/src/main.ts lab-document --ref TOKEN --out file.pdf

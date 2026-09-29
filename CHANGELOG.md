@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `login --http`: loopback browser page for ID + CAPTCHA image + SMS OTP (same session file as terminal login). No Imperva/CAPTCHA bypass.
+
 ## 0.1.0 — 2026-09-29
 
 - Initial public scaffold: `@clalit/core`, `@clalit/cli`, `@clalit/mcp`.

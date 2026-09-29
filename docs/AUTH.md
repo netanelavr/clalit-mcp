@@ -20,6 +20,10 @@ The site is fronted by Imperva. Headless datacenter clients often receive **Erro
 - Does **not** solve CAPTCHA
 - Expects a human on a residential / normal user machine
 
+## Browser login (`login --http`)
+
+Same CAPTCHA + SMS OTP flow as terminal login, but prompts run on a **loopback** page (`http://127.0.0.1:<port>/`). The CAPTCHA image is fetched with the login cookie jar and shown in the page when possible. Writes the same `session.json`. Does **not** bypass Imperva or solve CAPTCHA.
+
 ## What we store
 
 Config directory (mode `0700`), resolved as:

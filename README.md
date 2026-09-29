@@ -60,6 +60,9 @@ npx tsx packages/cli/src/main.ts help
 ## Sign in (Mac / residential)
 
 ```sh
+# Prefer HTTP UI so the CAPTCHA image is visible in the browser:
+npx tsx packages/cli/src/main.ts login --http
+# Or terminal prompts:
 npx tsx packages/cli/src/main.ts login
 npx tsx packages/cli/src/main.ts labs --json
 npx tsx packages/cli/src/main.ts lab --ref <token-from-labs> --json
