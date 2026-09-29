@@ -24,6 +24,47 @@ describe("loginInteractive after CAPTCHA", () => {
     expect(CAPTCHA_CHECK_BUDGET_MS).toBe(30_000);
   });
 
+  test("login fixture POST includes BotDetect VCID and submit button", async () => {
+    let posted = "";
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("infootplogin.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(loginHtml);
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && init?.method === "POST") {
+        posted = String(init.body ?? "");
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(otpHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && init?.method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.login } });
+      }
+      if (url.includes("Login.aspx")) return htmlResponse("<html><body>portal</body></html>");
+      return new Response("unexpected", { status: 500 });
+    };
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "123456",
+    });
+    const params = new URLSearchParams(posted);
+    expect(params.get("tbCaptchaLogin")).toBe("AB12");
+    expect(params.get("BDC_VCID_c_onlineweb_general_infootplogin_captchaLogin")).toBe(
+      "fixture-instance-id",
+    );
+    expect(params.get("btnLogin")).toBe("כניסה");
+    expect(params.get("tbUserId")).toBe("123456789");
+  });
+
+
   test("advances to OTP after captcha POST (redirect to OTP)", async () => {
     const calls: string[] = [];
     const fetchMock: typeof fetch = async (input, init) => {

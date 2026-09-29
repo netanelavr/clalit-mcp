@@ -5,7 +5,7 @@
 Host: `https://e-services.clalit.co.il`
 
 1. `POST /onlineweb/general/infootplogin.aspx`  
-   Fields include `tbUserId`, `tbCaptchaLogin`, BotDetect captcha id field, plus `__VIEWSTATE` / `__EVENTVALIDATION`.
+   Fields include `tbUserId`, `tbCaptchaLogin`, BotDetect `BDC_VCID_…` (instance id; often `type="text"`, not hidden), the login submit control, plus `__VIEWSTATE` / `__EVENTVALIDATION`.
 2. `GET/POST /OnlineWeb/General/OTPSMSVerification.aspx`  
    Field `txtClientOTP`.
 3. `GET /OnlineWeb/General/Login.aspx` — 302 into the portal session.

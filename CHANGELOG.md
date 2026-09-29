@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Login CAPTCHA POST: round-trip BotDetect `BDC_*` fields even when they are `type="text"` (not hidden), include the login submit button, and set Referer/Origin. Previously the instance id never left the client, so Clalit redisplayed CAPTCHA after a correct reading.
+
 - Terminal `login`: when CAPTCHA is requested, print the portal URL on its own line (`https://e-services.clalit.co.il/onlineweb/general/infootplogin.aspx`) so terminals can make it clickable.
 - `login --http` / `login()`: after CAPTCHA submit, advance to OTP or show a clear failure within ~30s (per-request transport timeout + overall captcha-check budget). Follow redirects / OTP GET; detect CAPTCHA rejected vs missing OTP page. Waiting UI gently auto-refreshes so OTP/errors appear without a manual reload. Terminal fallback: `clalit-mcp login`.
 - `login --http`: fix CAPTCHA Continue race (PRG 303, durable answer buffer, soft step-mismatch errors). Exclusive lock against a second browser login clearing in-flight state. Loopback + soft idle TTL raised to ~30 minutes.

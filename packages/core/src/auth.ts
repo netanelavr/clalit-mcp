@@ -2,7 +2,12 @@ import type { SerializedCookieJar } from "tough-cookie";
 import { PATHS, PORTAL_ORIGIN } from "./constants.js";
 import { AuthenticationError } from "./errors.js";
 import type { ClalitSession } from "./session.js";
-import { extractCaptchaImageUrl } from "./captcha.js";
+import {
+  extractBotDetectFields,
+  extractCaptchaImageUrl,
+  extractSubmitFields,
+  resolveBotDetectInstanceId,
+} from "./captcha.js";
 import { ClalitTransport, readBytes, readText } from "./transport.js";
 import { buildPostBackBody, extractWebFormsState, looksLikeBotChallenge } from "./webforms.js";
 
@@ -113,15 +118,20 @@ export class ClalitAuth {
     }
 
     const state = extractWebFormsState(html);
-    // Hint only. The typed answer must go to tbCaptchaLogin, never a BotDetect
-    // id (BDC_VCID_…captchaLogin matches /Captcha/ and would be overwritten).
+    // Typed answer goes only to tbCaptchaLogin. BotDetect BDC_* fields (often
+    // type=text, not hidden) must be round-tripped separately — extractWebFormsState
+    // only collects type=hidden, so without this the VCID never reaches Clalit.
     const captchaField = /name="tbCaptchaLogin"/i.test(html) ? "tbCaptchaLogin" : undefined;
+    const botDetectFields = extractBotDetectFields(html);
+    const submitFields = extractSubmitFields(html);
 
     const captchaImageUrl = extractCaptchaImageUrl(html);
     let captchaImage: CaptchaChallenge["captchaImage"];
+    let imageFinalUrl = captchaImageUrl;
     if (captchaImageUrl) {
       try {
         const imgRes = await this.transport.request(captchaImageUrl, { allowLoginHtml: true });
+        imageFinalUrl = imgRes.url || captchaImageUrl;
         const bytes = await readBytes(imgRes, 500_000);
         const contentType = imgRes.headers.get("content-type") ?? "image/png";
         if (imgRes.ok && bytes.byteLength > 0 && !looksLikeBotChallenge(Buffer.from(bytes).toString("latin1"), imgRes.status)) {
@@ -129,6 +139,13 @@ export class ClalitAuth {
         }
       } catch {
         /* Image is best-effort; human can still type from portal browser. */
+      }
+    }
+
+    const instanceId = resolveBotDetectInstanceId(html, imageFinalUrl);
+    if (instanceId) {
+      for (const name of Object.keys(botDetectFields)) {
+        if (/VCID/i.test(name)) botDetectFields[name] = instanceId;
       }
     }
 
@@ -143,6 +160,8 @@ export class ClalitAuth {
     const body = buildPostBackBody(state, {
       tbUserId: idNumber,
       tbCaptchaLogin: captcha,
+      ...botDetectFields,
+      ...submitFields,
     });
 
     // Cap the entire captcha-submit → OTP-page path so UI never waits forever.
@@ -190,7 +209,11 @@ export class ClalitAuth {
     let current = await this.transport.request(loginUrl, {
       method: "POST",
       allowLoginHtml: true,
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        referer: loginUrl,
+        origin: PORTAL_ORIGIN,
+      },
       body,
     });
     let html = await readText(current);
