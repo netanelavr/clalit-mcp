@@ -1,6 +1,8 @@
-import { login, type LoginPrompts } from "@clalit/core";
+import { login, PATHS, PORTAL_ORIGIN, type LoginPrompts } from "@clalit/core";
 import { ask } from "./prompt.js";
 import { saveSession } from "./store.js";
+
+const LOGIN_PORTAL_URL = `${PORTAL_ORIGIN}${PATHS.loginFoot}`;
 
 export async function runLogin(idNumber?: string): Promise<number> {
   const id = idNumber ?? (await ask("Israeli ID number (תעודת זהות): "));
@@ -10,6 +12,7 @@ export async function runLogin(idNumber?: string): Promise<number> {
       console.error("Clalit shows a CAPTCHA on the login page (BotDetect).");
       console.error("This tool does not bypass Imperva or solve CAPTCHA automatically.");
       console.error("Open the portal in your browser on this machine if the image is unclear.");
+      console.error(LOGIN_PORTAL_URL);
       if (challenge.captchaFieldName) {
         console.error(`Captcha field: ${challenge.captchaFieldName}`);
       }
