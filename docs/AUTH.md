@@ -42,8 +42,21 @@ Files:
 | --- | --- | --- |
 | `session.json` | Serialized cookie jar + `authenticatedAt` | `0600` |
 | `captcha-rejected-*.json` | Redacted CAPTCHA_REJECTED dump (HTML field shape + POST **keys** only; no ID/captcha/viewstate values) | `0600` |
+| `login-hops-*.json` | Redacted OTP→portal hop dump (URL/status/Set-Cookie **names**/jar **names** only) | `0600` |
 
 Never log cookie values. Never commit this directory.
+
+## Session completeness (fail-closed)
+
+After SMS OTP, login **does not** write `session.json` unless:
+
+1. The cookie jar contains at least one Imperva/TS-style name (`visid_incap_*`, `incap_ses_*`, `TS…`, or `_cls_*`), and
+2. A probe of `LabsTestList.aspx` does **not** 302/HTML-redirect to Login.
+
+A redacted `login-hops-*.json` dump (per-hop URL, status, Set-Cookie **names**, jar **names**, final count) is written under the config directory — never cookie values.
+
+On a residential Mac, login optionally warms those defense cookies via **Playwright** (Chrome channel when available) before the Node CAPTCHA/OTP chain, then merges `Domain=.clalit.co.il` cookies into the tough-cookie jar with `loose` parsing.
+
 
 ## Idle TTL
 

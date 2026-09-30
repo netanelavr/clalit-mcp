@@ -10,9 +10,26 @@ import {
   resolveBotDetectInstanceId,
   resolveInputName,
 } from "./captcha.js";
-import { writeCaptchaRejectedDump } from "./login-diagnostics.js";
-import { ClalitTransport, readBytes, readText } from "./transport.js";
-import { buildPostBackBody, extractWebFormsState, looksLikeBotChallenge } from "./webforms.js";
+import {
+  writeCaptchaRejectedDump,
+  writeLoginHopDump,
+  type LoginHopDiagnostic,
+} from "./login-diagnostics.js";
+import {
+  ClalitTransport,
+  isPortalDefenseCookieName,
+  readBytes,
+  readText,
+  responseSetCookieNames,
+  type BrowserCookieSeed,
+} from "./transport.js";
+import {
+  buildPostBackBody,
+  extractWebFormsState,
+  isLoginRedirectTarget,
+  looksLikeBotChallenge,
+  looksLikeLoginPage,
+} from "./webforms.js";
 
 /**
  * Login is interactive on the member's own machine (residential IP).
@@ -66,6 +83,14 @@ export interface LoginPrompts {
   solveCaptcha(challenge: CaptchaChallenge): Promise<string>;
   /** Return the SMS OTP the human received. */
   readOtp(challenge: OtpChallenge): Promise<string>;
+}
+
+export interface LoginOptions {
+  /**
+   * Optional browser/Playwright cookies to seed the jar before login
+   * (Imperva visid_incap_, incap_ses_, TS, _cls_). Values never logged.
+   */
+  seedCookies?: BrowserCookieSeed[];
 }
 
 function looksLikeOtpPage(html: string): boolean {
@@ -186,10 +211,17 @@ export class ClalitAuth {
    * Full interactive login. Prompts belong to the caller (CLI).
    * Returns an authenticated session.
    */
-  async loginInteractive(idNumber: string, prompts: LoginPrompts): Promise<ClalitSession> {
+  async loginInteractive(
+    idNumber: string,
+    prompts: LoginPrompts,
+    options: LoginOptions = {},
+  ): Promise<ClalitSession> {
     if (!/^\d{1,9}$/.test(idNumber)) throw new AuthenticationError("INVALID_ID_FORMAT");
 
     await this.transport.clearSession();
+    if (options.seedCookies?.length) {
+      await this.transport.importBrowserCookies(options.seedCookies);
+    }
     const loginUrl = PORTAL_ORIGIN + PATHS.loginFoot;
     const page = await this.transport.request(loginUrl, { allowLoginHtml: true });
     const html = await readText(page);
@@ -286,7 +318,10 @@ export class ClalitAuth {
     });
     // OTP POST + Login.aspx/portal hops set auth cookies via Set-Cookie (and JS
     // setCookie mirrors). Follow the full chain and merge into the jar before export.
-    await this.#completePortalSessionAfterOtp(verified, otpUrl);
+    const hops = await this.#completePortalSessionAfterOtp(verified, otpUrl);
+
+    // Fail-closed: do not markAuthenticated / write session on incomplete jars.
+    await this.#assertCompleteOtpSession(hops);
 
     this.transport.markAuthenticated();
     return this.transport.exportSession();
@@ -297,30 +332,94 @@ export class ClalitAuth {
    * mirror setCookie(...) into the jar, and ensure Login.aspx → portal runs so
    * exportSession persists portal auth cookies (not only ASP.NET_SessionId).
    */
-  async #completePortalSessionAfterOtp(otpResponse: Response, otpUrl: string): Promise<void> {
-    const visited = await this.#followAuthRedirectChain(otpResponse, otpUrl, 8);
-    const touchedLogin = visited.some((u) => /\/Login\.aspx\b/i.test(u));
+  async #completePortalSessionAfterOtp(
+    otpResponse: Response,
+    otpUrl: string,
+  ): Promise<LoginHopDiagnostic[]> {
+    const hops = await this.#followAuthRedirectChain(otpResponse, otpUrl, 8);
+    const touchedLogin = hops.some((h) => /\/Login\.aspx\b/i.test(h.url));
     if (!touchedLogin) {
       const loginUrl = PORTAL_ORIGIN + PATHS.login;
       const hop = await this.transport.request(loginUrl, { allowLoginHtml: true });
-      await this.#followAuthRedirectChain(hop, loginUrl, 8);
+      hops.push(...(await this.#followAuthRedirectChain(hop, loginUrl, 8)));
+    }
+    return hops;
+  }
+
+  /**
+   * Fail closed when the jar lacks Imperva/TS-style cookies or LabsTestList still
+   * redirects to Login. Does not call markAuthenticated — session must not be written.
+   */
+  async #assertCompleteOtpSession(hops: LoginHopDiagnostic[]): Promise<void> {
+    const finalJarNames = await this.transport.listCookieNames();
+    const finalJarCount = await this.transport.cookieCount();
+    const hasDefense = finalJarNames.some(isPortalDefenseCookieName);
+
+    let labsProbe: { status: number; location?: string; loginRedirect: boolean } | undefined;
+    let labsLoginRedirect = false;
+    try {
+      const labsUrl = PORTAL_ORIGIN + PATHS.labsList;
+      const labsRes = await this.transport.request(labsUrl, { allowLoginHtml: true });
+      const location = labsRes.headers.get("location") ?? undefined;
+      let loginRedirect =
+        (labsRes.status === 301 ||
+          labsRes.status === 302 ||
+          labsRes.status === 303 ||
+          labsRes.status === 307 ||
+          labsRes.status === 308) &&
+        Boolean(location && isLoginRedirectTarget(location));
+      if (!loginRedirect) {
+        try {
+          const html = await readText(labsRes);
+          loginRedirect = looksLikeLoginPage(html);
+        } catch {
+          /* body unreadable — treat as incomplete below only if status suggests login */
+        }
+      }
+      labsLoginRedirect = loginRedirect;
+      labsProbe = {
+        status: labsRes.status,
+        ...(location ? { location } : {}),
+        loginRedirect,
+      };
+    } catch {
+      labsLoginRedirect = true;
+      labsProbe = { status: 0, loginRedirect: true };
+    }
+
+    await writeLoginHopDump({
+      hops,
+      finalJarNames,
+      finalJarCount,
+      reason: !hasDefense
+        ? "missing_portal_defense_cookies"
+        : labsLoginRedirect
+          ? "labs_login_redirect"
+          : "ok",
+      ...(labsProbe ? { labsProbe } : {}),
+    });
+
+    if (!hasDefense || labsLoginRedirect) {
+      throw new AuthenticationError("OTP_SESSION_INCOMPLETE");
     }
   }
 
   /**
    * Follow redirects while merging every hop's Set-Cookie (via transport) and
-   * mirroring HTML setCookie() calls. Returns absolute URLs visited (including start).
+   * mirroring HTML setCookie() calls. Returns per-hop diagnostics (names only).
    */
   async #followAuthRedirectChain(
     initial: Response,
     initialUrl: string,
     maxHops: number,
-  ): Promise<string[]> {
+  ): Promise<LoginHopDiagnostic[]> {
+    const hops: LoginHopDiagnostic[] = [];
     const visited: string[] = [initialUrl];
     let current = initial;
     let currentUrl = initialUrl;
 
     for (let hop = 0; hop < maxHops; hop += 1) {
+      const setCookieNames = responseSetCookieNames(current);
       let html = "";
       const ct = current.headers.get("content-type") ?? "";
       const mightBeHtml =
@@ -338,6 +437,15 @@ export class ClalitAuth {
           await this.transport.setCookie(raw, currentUrl);
         }
       }
+
+      const jarCookieNames = await this.transport.listCookieNames();
+      hops.push({
+        url: currentUrl,
+        status: current.status,
+        setCookieNames,
+        jarCookieNames,
+        jarCount: jarCookieNames.length,
+      });
 
       const locationHeader = current.headers.get("location") ?? undefined;
       let nextRaw: string | undefined;
@@ -361,7 +469,7 @@ export class ClalitAuth {
       visited.push(nextUrl);
     }
 
-    return visited;
+    return hops;
   }
 
   /**

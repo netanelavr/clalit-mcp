@@ -23,6 +23,7 @@ import {
   type OtpChallenge,
 } from "@clalit/core";
 import { saveSession } from "./store.js";
+import { warmPortalCookiesViaPlaywright } from "./playwright-cookies.js";
 
 const LOCAL_HOST = "127.0.0.1" as const;
 /** Browser login wall-clock budget (ID + CAPTCHA + SMS). */
@@ -681,7 +682,12 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
         phase = "loading_captcha";
       }
 
-      const client = await login(idNumber, prompts);
+      const seedCookies = await warmPortalCookiesViaPlaywright();
+      const client = await login(
+        idNumber,
+        prompts,
+        seedCookies?.length ? { seedCookies } : {},
+      );
       const session = await client.exportSession();
       await saveSession(session);
       clearPhaseWatchdog();
@@ -714,6 +720,14 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
       if (code === "OTP_PAGE_MISSING") {
         fail(
           "Clalit did not open the SMS OTP step after CAPTCHA. Try again, or use terminal login: clalit-mcp login",
+          1,
+        );
+        return;
+      }
+      if (code === "OTP_SESSION_INCOMPLETE") {
+        fail(
+          (err instanceof Error ? err.message : "OTP session incomplete.") +
+            " See ~/.config/clalit-mcp/login-hops-*.json (cookie names only).",
           1,
         );
         return;

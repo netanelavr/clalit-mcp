@@ -1,4 +1,4 @@
-import { ClalitAuth, type LoginPrompts } from "./auth.js";
+import { ClalitAuth, type LoginOptions, type LoginPrompts } from "./auth.js";
 import { ClalitReaders } from "./readers.js";
 import type { ClalitSession } from "./session.js";
 import { ClalitTransport } from "./transport.js";
@@ -19,9 +19,13 @@ async function open(session: ClalitSession): Promise<ClalitClient> {
 }
 
 /** Interactive CAPTCHA + SMS OTP login on the caller's machine. */
-export async function login(idNumber: string, prompts: LoginPrompts): Promise<ClalitClient> {
+export async function login(
+  idNumber: string,
+  prompts: LoginPrompts,
+  options: LoginOptions = {},
+): Promise<ClalitClient> {
   const auth = new ClalitAuth();
-  const session = await auth.loginInteractive(idNumber, prompts);
+  const session = await auth.loginInteractive(idNumber, prompts, options);
   return open(session);
 }
 

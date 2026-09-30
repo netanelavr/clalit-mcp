@@ -238,3 +238,52 @@ export async function writeCaptchaRejectedDump(opts: {
     return undefined;
   }
 }
+
+
+/** One login redirect hop — names only, never cookie values. */
+export interface LoginHopDiagnostic {
+  url: string;
+  status: number;
+  setCookieNames: string[];
+  jarCookieNames: string[];
+  jarCount: number;
+}
+
+/**
+ * Best-effort redacted dump of the OTP→portal hop chain (mode 0600).
+ * Never writes cookie values — names, statuses, and URLs only.
+ */
+export async function writeLoginHopDump(opts: {
+  hops: LoginHopDiagnostic[];
+  finalJarNames: string[];
+  finalJarCount: number;
+  reason?: string;
+  labsProbe?: { status: number; location?: string; loginRedirect: boolean };
+}): Promise<string | undefined> {
+  try {
+    const dir = clalitConfigDir();
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const path = join(dir, `login-hops-${stamp}.json`);
+    const payload = {
+      version: 1,
+      kind: "login-hops",
+      at: new Date().toISOString(),
+      ...(opts.reason ? { reason: opts.reason } : {}),
+      hops: opts.hops.map((h) => ({
+        url: h.url,
+        status: h.status,
+        setCookieNames: h.setCookieNames,
+        jarCookieNames: h.jarCookieNames,
+        jarCount: h.jarCount,
+      })),
+      finalJarNames: opts.finalJarNames,
+      finalJarCount: opts.finalJarCount,
+      ...(opts.labsProbe ? { labsProbe: opts.labsProbe } : {}),
+    };
+    await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+    return path;
+  } catch {
+    return undefined;
+  }
+}

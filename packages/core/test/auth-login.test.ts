@@ -36,6 +36,50 @@ function responseWithSetCookies(
   return new Response(body, { status: init.status ?? 200, headers });
 }
 
+
+
+const DEFENSE_COOKIES = [
+  "visid_incap_2919800=visid-fixture; Domain=.clalit.co.il; Path=/; HttpOnly",
+  "incap_ses_1168_2919800=incap-fixture; Domain=.clalit.co.il; Path=/",
+  "TS21fa3c30027=ts-fixture; Path=/",
+];
+
+const LABS_OK_HTML =
+  "<html><body>LabsTestList LabsHistory __VIEWSTATE gvTestListInDateRange בדיקות מעבדה</body></html>";
+
+/** Ensure successful login mocks satisfy fail-closed (defense cookies + Labs OK). */
+function withFailClosedComplete(inner: typeof fetch): typeof fetch {
+  return async (input, init) => {
+    const url = String(input);
+    if (url.includes("LabsTestList.aspx")) {
+      return htmlResponse(LABS_OK_HTML);
+    }
+    const res = await inner(input, init);
+    // Attach defense cookies on OTP POST if the mock did not already set Imperva/TS names.
+    if (url.includes("OTPSMSVerification.aspx") && init?.method === "POST") {
+      const existing = (() => {
+        const anyHeaders = res.headers as Headers & { getSetCookie?: () => string[] };
+        return typeof anyHeaders.getSetCookie === "function" ? anyHeaders.getSetCookie() : [];
+      })();
+      const names = existing.map((r) => r.split("=")[0] ?? "");
+      const hasDefense = names.some(
+        (n) =>
+          /^visid_incap_/i.test(n) ||
+          /^incap_ses_/i.test(n) ||
+          /^TS[0-9a-f]/i.test(n) ||
+          /^_cls_/i.test(n),
+      );
+      if (!hasDefense) {
+        const headers = new Headers(res.headers);
+        for (const raw of DEFENSE_COOKIES) headers.append("set-cookie", raw);
+        const body = await res.arrayBuffer();
+        return new Response(body, { status: res.status, statusText: res.statusText, headers });
+      }
+    }
+    return res;
+  };
+}
+
 function sessionCookieNames(session: { cookies: { cookies?: Array<{ key?: string }> } }): string[] {
   const list = session.cookies.cookies ?? [];
   return list.map((c) => c.key).filter((k): k is string => Boolean(k));
@@ -79,7 +123,7 @@ describe("loginInteractive after CAPTCHA", () => {
       if (url.includes("Login.aspx")) return htmlResponse("<html><body>portal</body></html>");
       return new Response("unexpected", { status: 500 });
     };
-    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
     await auth.loginInteractive("123456789", {
       solveCaptcha: async () => "AB12",
       readOtp: async () => "123456",
@@ -132,7 +176,7 @@ describe("loginInteractive after CAPTCHA", () => {
       return new Response("unexpected", { status: 500 });
     };
 
-    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
     const session = await auth.loginInteractive("123456789", {
       solveCaptcha: async () => "AB12",
       readOtp: async () => "123456",
@@ -178,7 +222,7 @@ describe("loginInteractive after CAPTCHA", () => {
       if (url.includes("Login.aspx")) return htmlResponse("<html><body>portal</body></html>");
       return new Response("unexpected", { status: 500 });
     };
-    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
     await auth.loginInteractive("123456789", {
       solveCaptcha: async () => "AB12",
       readOtp: async () => "123456",
@@ -212,7 +256,7 @@ describe("loginInteractive after CAPTCHA", () => {
       return new Response("unexpected", { status: 500 });
     };
 
-    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
     await expect(
       auth.loginInteractive("123456789", {
         solveCaptcha: async () => "WRONG",
@@ -289,7 +333,7 @@ describe("loginInteractive after CAPTCHA", () => {
       return new Response("unexpected", { status: 500 });
     };
 
-    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
     const session = await auth.loginInteractive("123456789", {
       solveCaptcha: async () => "OKOK",
       readOtp: async () => "123456",
@@ -328,7 +372,7 @@ describe("loginInteractive after CAPTCHA", () => {
       return new Response("unexpected", { status: 500 });
     };
 
-    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
     await expect(
       auth.loginInteractive("123456789", {
         solveCaptcha: async () => "WRONG",
@@ -381,7 +425,7 @@ describe("loginInteractive after CAPTCHA", () => {
     };
 
     const fast = new ClalitAuth(
-      new ClalitTransport({ fetch: fetchMock, minGapMs: 0, timeoutMs: 50 }),
+      new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0, timeoutMs: 50 }),
     );
     try {
       await fast.loginInteractive("123456789", {
@@ -426,7 +470,7 @@ describe("loginInteractive after CAPTCHA", () => {
       return new Response("nope", { status: 404 });
     };
 
-    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
     await auth.loginInteractive("123456789", {
       solveCaptcha: async () => "OK",
       readOtp: async () => "654321",
@@ -487,7 +531,7 @@ describe("OTP Set-Cookie merge into exportSession", () => {
       return new Response("unexpected", { status: 500 });
     };
 
-    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
     const session = await auth.loginInteractive("123456789", {
       solveCaptcha: async () => "AB12",
       readOtp: async () => "123456",
@@ -543,7 +587,7 @@ describe("OTP Set-Cookie merge into exportSession", () => {
       return new Response("unexpected", { status: 500 });
     };
 
-    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
     const session = await auth.loginInteractive("123456789", {
       solveCaptcha: async () => "AB12",
       readOtp: async () => "999999",
@@ -552,6 +596,201 @@ describe("OTP Set-Cookie merge into exportSession", () => {
     expect(names.length).toBeGreaterThan(2);
     expect(names).toContain("PostOtpAuth");
     expect(names).toContain("AfterLogin");
+  });
+});
+
+
+describe("OTP fail-closed incomplete session", () => {
+  test("rejects export when jar lacks Imperva/TS cookies after OTP", async () => {
+    const dumpDir = mkdtempSync(join(tmpdir(), "clalit-hops-"));
+    process.env.CLALIT_CONFIG_DIR = dumpDir;
+
+    // Bypass withFailClosedComplete — deliberately omit defense cookies.
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("infootplogin.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(loginHtml);
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && init?.method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(otpHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && init?.method === "POST") {
+        return responseWithSetCookies(null, {
+          status: 302,
+          location: PATHS.login,
+          cookies: [
+            "ASP.NET_SessionId=only-session; Path=/; HttpOnly; Secure",
+            "languageCode=he; Path=/; HttpOnly; Secure",
+          ],
+        });
+      }
+      if (url.includes("Login.aspx")) {
+        return htmlResponse("<html><body>portal</body></html>");
+      }
+      if (url.includes("LabsTestList.aspx")) {
+        return htmlResponse(LABS_OK_HTML);
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    await expect(
+      auth.loginInteractive("123456789", {
+        solveCaptcha: async () => "AB12",
+        readOtp: async () => "123456",
+      }),
+    ).rejects.toMatchObject({ code: "OTP_SESSION_INCOMPLETE" });
+
+    const dumps = readdirSync(dumpDir).filter((f) => f.startsWith("login-hops-"));
+    expect(dumps.length).toBe(1);
+    const dump = JSON.parse(readFileSync(join(dumpDir, dumps[0]!), "utf8")) as {
+      finalJarNames: string[];
+      reason: string;
+      hops: Array<{ setCookieNames: string[]; jarCookieNames: string[] }>;
+    };
+    expect(dump.reason).toBe("missing_portal_defense_cookies");
+    expect(dump.finalJarNames).toEqual(
+      expect.arrayContaining(["ASP.NET_SessionId", "languageCode"]),
+    );
+    expect(dump.finalJarNames.some((n) => /^visid_incap_/i.test(n))).toBe(false);
+    const raw = readFileSync(join(dumpDir, dumps[0]!), "utf8");
+    expect(raw).not.toContain("only-session");
+    expect(raw).not.toContain("123456");
+  });
+
+  test("rejects when LabsTestList still 302→Login despite defense cookies", async () => {
+    const dumpDir = mkdtempSync(join(tmpdir(), "clalit-hops-"));
+    process.env.CLALIT_CONFIG_DIR = dumpDir;
+
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("infootplogin.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(loginHtml);
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && init?.method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(otpHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && init?.method === "POST") {
+        return responseWithSetCookies(null, {
+          status: 302,
+          location: PATHS.login,
+          cookies: [
+            "ASP.NET_SessionId=sess; Path=/",
+            "languageCode=he; Path=/",
+            ...DEFENSE_COOKIES,
+          ],
+        });
+      }
+      if (url.includes("Login.aspx")) {
+        return htmlResponse("<html><body>portal</body></html>");
+      }
+      if (url.includes("LabsTestList.aspx")) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location:
+              "/OnlineWeb/General/Login.aspx?ReturnUrl=%2fOnlineWeb%2fServices%2fLabs%2fLabsTestList.aspx",
+          },
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    await expect(
+      auth.loginInteractive("123456789", {
+        solveCaptcha: async () => "AB12",
+        readOtp: async () => "123456",
+      }),
+    ).rejects.toMatchObject({ code: "OTP_SESSION_INCOMPLETE" });
+
+    const dumps = readdirSync(dumpDir).filter((f) => f.startsWith("login-hops-"));
+    expect(dumps.length).toBe(1);
+    const dump = JSON.parse(readFileSync(join(dumpDir, dumps[0]!), "utf8")) as {
+      reason: string;
+      labsProbe: { loginRedirect: boolean; status: number };
+    };
+    expect(dump.reason).toBe("labs_login_redirect");
+    expect(dump.labsProbe.loginRedirect).toBe(true);
+    expect(dump.labsProbe.status).toBe(302);
+  });
+
+  test("Domain=.clalit.co.il defense cookies from OTP Set-Cookie appear in session", async () => {
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("infootplogin.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(loginHtml);
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && init?.method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(otpHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && init?.method === "POST") {
+        return responseWithSetCookies(null, {
+          status: 302,
+          location: PATHS.login,
+          cookies: [
+            "ASP.NET_SessionId=sess; Path=/; HttpOnly; Secure",
+            "languageCode=he; Path=/",
+            "visid_incap_2919800=v; Domain=.clalit.co.il; Path=/; HttpOnly",
+            "incap_ses_1168_2919800=i; Domain=.clalit.co.il; Path=/",
+            "TS21fa3c30027=t; Path=/",
+            "_cls_v=1; Domain=.clalit.co.il; Path=/; Secure; SameSite=None",
+          ],
+        });
+      }
+      if (url.includes("Login.aspx")) {
+        return htmlResponse("<html><body>portal</body></html>");
+      }
+      if (url.includes("LabsTestList.aspx")) {
+        return htmlResponse(LABS_OK_HTML);
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const session = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "123456",
+    });
+    const names = sessionCookieNames(session);
+    expect(names).toContain("visid_incap_2919800");
+    expect(names).toContain("incap_ses_1168_2919800");
+    expect(names).toContain("TS21fa3c30027");
+    expect(names).toContain("_cls_v");
+    const domains = (session.cookies.cookies ?? []).map((c) => ({
+      key: (c as { key?: string }).key,
+      domain: (c as { domain?: string }).domain,
+    }));
+    expect(domains.some((c) => c.key === "visid_incap_2919800" && c.domain === "clalit.co.il")).toBe(
+      true,
+    );
   });
 });
 

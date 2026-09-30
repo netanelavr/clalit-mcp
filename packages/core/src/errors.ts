@@ -31,6 +31,8 @@ const AUTH_MESSAGES: Record<string, string> = {
   CAPTCHA_CHECK_TIMEOUT:
     "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step in time. Try again, or use terminal login: clalit-mcp login",
   AUTHENTICATION_FAILED: "Clalit sign-in did not complete. Check the login step and try again.",
+  OTP_SESSION_INCOMPLETE:
+    "OTP finished but the session jar is incomplete (missing Imperva/TS cookies) or LabsTestList still redirects to login. Session was not saved. Retry on your Mac; Playwright cookie warm runs automatically when available.",
 };
 
 export class AuthenticationError extends ClalitError {

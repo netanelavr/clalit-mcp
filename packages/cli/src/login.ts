@@ -1,4 +1,5 @@
 import { login, PATHS, PORTAL_ORIGIN, type LoginPrompts } from "@clalit/core";
+import { warmPortalCookiesViaPlaywright } from "./playwright-cookies.js";
 import { ask } from "./prompt.js";
 import { saveSession } from "./store.js";
 
@@ -26,7 +27,8 @@ export async function runLogin(idNumber?: string): Promise<number> {
   };
 
   try {
-    const client = await login(id, prompts);
+    const seedCookies = await warmPortalCookiesViaPlaywright();
+    const client = await login(id, prompts, seedCookies?.length ? { seedCookies } : {});
     const session = await client.exportSession();
     await saveSession(session);
     console.log("Signed in. Session saved under the clalit-mcp config directory (mode 0600).");
@@ -53,6 +55,13 @@ export async function runLogin(idNumber?: string): Promise<number> {
     if (code === "CAPTCHA_REJECTED" || code === "OTP_PAGE_MISSING") {
       console.error(err instanceof Error ? err.message : "CAPTCHA check failed.");
       console.error("Try again (refresh CAPTCHA), or use `clalit-mcp login --http`.");
+      return 1;
+    }
+    if (code === "OTP_SESSION_INCOMPLETE") {
+      console.error(err instanceof Error ? err.message : "OTP session incomplete.");
+      console.error(
+        "A redacted login-hops-*.json dump was written under ~/.config/clalit-mcp (cookie names only).",
+      );
       return 1;
     }
     console.error(err instanceof Error ? err.message : "Login failed.");
