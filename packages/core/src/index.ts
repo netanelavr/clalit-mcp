@@ -1,4 +1,5 @@
 export * from "./captcha.js";
+export * from "./login-diagnostics.js";
 export * from "./auth.js";
 export * from "./client.js";
 export * from "./constants.js";

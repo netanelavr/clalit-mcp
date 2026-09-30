@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Login CAPTCHA POST: use live ASP.NET UniqueIDs (`ctl00$cphBody$tbUserId` / `tbCaptchaLogin`), Libre BotDetect `LBD_VCID_*` (and image `t=`), and `__EVENTTARGET=ctl00$cphBody$btnSendOTP` instead of short names / inventing `btnLogin`. Fixes CAPTCHA_REJECTED after a correct human reading. On reject, write a redacted shape dump under `~/.config/clalit-mcp/captcha-rejected-*.json` (keys only).
 - Login CAPTCHA POST: round-trip BotDetect `BDC_*` fields even when they are `type="text"` (not hidden), include the login submit button, and set Referer/Origin. Previously the instance id never left the client, so Clalit redisplayed CAPTCHA after a correct reading.
 
 - Terminal `login`: when CAPTCHA is requested, print the portal URL on its own line (`https://e-services.clalit.co.il/onlineweb/general/infootplogin.aspx`) so terminals can make it clickable.

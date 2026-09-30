@@ -70,14 +70,16 @@ export function buildPostBackBody(
 
 /** Detect Imperva / bot-challenge pages without parsing challenge internals. */
 export function looksLikeBotChallenge(html: string, status?: number): boolean {
-  if (status === 403) return true;
   const lower = html.slice(0, 8000).toLowerCase();
+  // Normal login HTML may load /_Incapsula_Resource scripts — that is not Error 16.
+  const looksLikeLoginForm = lower.includes("tbuserid") && lower.includes("captcha");
+  if (lower.includes("error 16") || lower.includes("pardon our interruption")) return true;
+  if (status === 403) return !looksLikeLoginForm;
+  if (looksLikeLoginForm) return false;
   return (
     lower.includes("imperva") ||
     lower.includes("incapsula") ||
-    lower.includes("error 16") ||
-    lower.includes("_incapsula_resource") ||
-    lower.includes("pardon our interruption")
+    lower.includes("_incapsula_resource")
   );
 }
 

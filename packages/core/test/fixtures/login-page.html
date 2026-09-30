@@ -2,15 +2,19 @@
 <html>
 <head><title>כניסה</title></head>
 <body>
-<form method="post" action="./infootplogin.aspx">
+<form name="aspnetForm" method="post" action="./infootplogin.aspx" id="aspnetForm">
+  <input type="hidden" name="__EVENTTARGET" id="__EVENTTARGET" value="" />
+  <input type="hidden" name="__EVENTARGUMENT" id="__EVENTARGUMENT" value="" />
   <input type="hidden" name="__VIEWSTATE" value="/wEPDwUKLOGINVIEWSTATE" />
   <input type="hidden" name="__VIEWSTATEGENERATOR" value="LOGIN1" />
+  <input type="hidden" name="__VIEWSTATEENCRYPTED" value="" />
   <input type="hidden" name="__EVENTVALIDATION" value="/wEdLOGIN" />
-  <input type="text" name="tbUserId" id="tbUserId" />
-  <input type="text" name="tbCaptchaLogin" id="tbCaptchaLogin" />
-  <input type="text" name="BDC_VCID_c_onlineweb_general_infootplogin_captchaLogin" value="fixture-instance-id" />
-  <img src="/BotDetectCaptcha.ashx?get=image&amp;c=captchaLogin&amp;d=fixture-instance-id" alt="CAPTCHA" />
-  <input type="submit" name="btnLogin" value="כניסה" />
+  <input type="number" name="ctl00$cphBody$tbUserId" id="tbUserId" />
+  <input type="text" name="ctl00$cphBody$tbCaptchaLogin" id="tbCaptchaLogin" maxlength="5" />
+  <input type="hidden" name="LBD_VCID_c_general_infootplogin_ctl00_cphbody_captchalogin" id="LBD_VCID_c_general_infootplogin_ctl00_cphbody_captchalogin" value="fixture-instance-id" />
+  <img class="LBD_CaptchaImage" id="c_general_infootplogin_ctl00_cphbody_captchalogin_CaptchaImage" src="/OnlineWeb/general/BotDetectCaptcha.ashx?get=image&amp;c=c_general_infootplogin_ctl00_cphbody_captchalogin&amp;t=fixture-instance-id" alt="CAPTCHA" />
+  <a id="ctl00_cphBody_btnSendOTP" href="javascript:WebForm_DoPostBackWithOptions(new WebForm_PostBackOptions(&quot;ctl00$cphBody$btnSendOTP&quot;, &quot;&quot;, true, &quot;vgLoginCapchaGroup&quot;, &quot;&quot;, false, true))">המשך</a>
+  <input type="submit" name="ctl00$BottomMenuModalDialog$MyButtonCtrl" value="" id="ctl00_BottomMenuModalDialog_MyButtonCtrl" style="display: none" />
 </form>
 </body>
 </html>

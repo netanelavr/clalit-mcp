@@ -5,7 +5,7 @@
 Host: `https://e-services.clalit.co.il`
 
 1. `POST /onlineweb/general/infootplogin.aspx`  
-   Fields include `tbUserId`, `tbCaptchaLogin`, BotDetect `BDC_VCID_…` (instance id; often `type="text"`, not hidden), the login submit control, plus `__VIEWSTATE` / `__EVENTVALIDATION`.
+   Live fields (2026-09): `ctl00$cphBody$tbUserId`, `ctl00$cphBody$tbCaptchaLogin`, BotDetect `LBD_VCID_…` (hidden instance id; image query uses `t=`), `__EVENTTARGET=ctl00$cphBody$btnSendOTP` (LinkButton, not a type=submit), plus `__VIEWSTATE` / `__EVENTVALIDATION`. Older `BDC_VCID_*` + `btnLogin` submit shapes are still accepted when present.
 2. `GET/POST /OnlineWeb/General/OTPSMSVerification.aspx`  
    Field `txtClientOTP`.
 3. `GET /OnlineWeb/General/Login.aspx` — 302 into the portal session.
@@ -41,6 +41,7 @@ Files:
 | File | Contents | Mode |
 | --- | --- | --- |
 | `session.json` | Serialized cookie jar + `authenticatedAt` | `0600` |
+| `captcha-rejected-*.json` | Redacted CAPTCHA_REJECTED dump (HTML field shape + POST **keys** only; no ID/captcha/viewstate values) | `0600` |
 
 Never log cookie values. Never commit this directory.
 

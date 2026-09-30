@@ -5,18 +5,23 @@ import type { ClalitSession } from "./session.js";
 import {
   extractBotDetectFields,
   extractCaptchaImageUrl,
+  extractLoginEventTarget,
   extractSubmitFields,
   resolveBotDetectInstanceId,
+  resolveInputName,
 } from "./captcha.js";
+import { writeCaptchaRejectedDump } from "./login-diagnostics.js";
 import { ClalitTransport, readBytes, readText } from "./transport.js";
 import { buildPostBackBody, extractWebFormsState, looksLikeBotChallenge } from "./webforms.js";
 
 /**
  * Login is interactive on the member's own machine (residential IP).
  *
- * Observed flow (Gate 2 HAR — ASP.NET WebForms, not a JSON API):
+ * Observed flow (Gate 2 HAR + 2026-09 live HTML — ASP.NET WebForms, not a JSON API):
  * 1. GET/POST /onlineweb/general/infootplogin.aspx
- *    fields: tbUserId, tbCaptchaLogin, BotDetect captcha id field, __VIEWSTATE…
+ *    fields: ctl00$cphBody$tbUserId, ctl00$cphBody$tbCaptchaLogin,
+ *    LBD_VCID_… (BotDetect instance id), __EVENTTARGET=ctl00$cphBody$btnSendOTP,
+ *    plus __VIEWSTATE…
  * 2. GET/POST /OnlineWeb/General/OTPSMSVerification.aspx — field txtClientOTP
  * 3. GET /OnlineWeb/General/Login.aspx (302 into portal)
  *
@@ -118,12 +123,18 @@ export class ClalitAuth {
     }
 
     const state = extractWebFormsState(html);
-    // Typed answer goes only to tbCaptchaLogin. BotDetect BDC_* fields (often
-    // type=text, not hidden) must be round-tripped separately — extractWebFormsState
-    // only collects type=hidden, so without this the VCID never reaches Clalit.
-    const captchaField = /name="tbCaptchaLogin"/i.test(html) ? "tbCaptchaLogin" : undefined;
+    // Live page uses UniqueIDs: ctl00$cphBody$tbUserId / tbCaptchaLogin.
+    // Fall back to short names for fixtures / older HTML.
+    const userIdField = resolveInputName(html, "tbUserId") ?? "tbUserId";
+    const captchaField = resolveInputName(html, "tbCaptchaLogin") ?? "tbCaptchaLogin";
+    // Typed answer goes only to the captcha text box. BotDetect BDC_*/LBD_* fields
+    // (often type=text, not hidden) must be round-tripped separately — extractWebFormsState
+    // only collects type=hidden, so without this a type=text VCID never reaches Clalit.
     const botDetectFields = extractBotDetectFields(html);
-    const submitFields = extractSubmitFields(html);
+    // Prefer LinkButton __EVENTTARGET (btnSendOTP). Only fall back to submit inputs
+    // when no postback target is present — avoids posting BottomMenuModalDialog.
+    const loginEventTarget = extractLoginEventTarget(html);
+    const submitFields = loginEventTarget ? {} : extractSubmitFields(html);
 
     const captchaImageUrl = extractCaptchaImageUrl(html);
     let captchaImage: CaptchaChallenge["captchaImage"];
@@ -134,7 +145,11 @@ export class ClalitAuth {
         imageFinalUrl = imgRes.url || captchaImageUrl;
         const bytes = await readBytes(imgRes, 500_000);
         const contentType = imgRes.headers.get("content-type") ?? "image/png";
-        if (imgRes.ok && bytes.byteLength > 0 && !looksLikeBotChallenge(Buffer.from(bytes).toString("latin1"), imgRes.status)) {
+        if (
+          imgRes.ok &&
+          bytes.byteLength > 0 &&
+          !looksLikeBotChallenge(Buffer.from(bytes).toString("latin1"), imgRes.status)
+        ) {
           captchaImage = { bytes, contentType: contentType.split(";")[0]!.trim() || "image/png" };
         }
       } catch {
@@ -151,34 +166,40 @@ export class ClalitAuth {
 
     const captcha = await prompts.solveCaptcha({
       pageHtml: html,
-      ...(captchaField ? { captchaFieldName: captchaField } : {}),
+      captchaFieldName: captchaField,
       viewStatePresent: Boolean(state.viewState),
       ...(captchaImageUrl ? { captchaImageUrl } : {}),
       ...(captchaImage ? { captchaImage } : {}),
     });
 
-    const body = buildPostBackBody(state, {
-      tbUserId: idNumber,
-      tbCaptchaLogin: captcha,
-      ...botDetectFields,
-      ...submitFields,
-    });
+    const body = buildPostBackBody(
+      state,
+      {
+        [userIdField]: idNumber,
+        [captchaField]: captcha,
+        ...botDetectFields,
+        ...submitFields,
+      },
+      loginEventTarget ?? "",
+      "",
+    );
 
     // Cap the entire captcha-submit → OTP-page path so UI never waits forever.
     const otpHtml = await withTimeout(
-      this.#advanceToOtpPage(loginUrl, body),
+      this.#advanceToOtpPage(loginUrl, body, html),
       CAPTCHA_CHECK_BUDGET_MS,
       () => new AuthenticationError("CAPTCHA_CHECK_TIMEOUT"),
     );
 
     const otpUrl = PORTAL_ORIGIN + PATHS.otpSms;
     const otpState = extractWebFormsState(otpHtml);
+    const otpField = resolveInputName(otpHtml, "txtClientOTP") ?? "txtClientOTP";
     const code = await prompts.readOtp({
       message: "Enter the SMS one-time code from Clalit.",
     });
     if (!/^\d{4,8}$/.test(code)) throw new AuthenticationError("INVALID_OTP_FORMAT");
 
-    const otpBody = buildPostBackBody(otpState, { txtClientOTP: code });
+    const otpBody = buildPostBackBody(otpState, { [otpField]: code });
     const verified = await this.transport.request(otpUrl, {
       method: "POST",
       allowLoginHtml: true,
@@ -204,7 +225,11 @@ export class ClalitAuth {
    * POST captcha + ID, follow redirects / OTP GET, and return OTP page HTML.
    * Throws CAPTCHA_REJECTED when Clalit redisplays the login CAPTCHA form.
    */
-  async #advanceToOtpPage(loginUrl: string, body: string): Promise<string> {
+  async #advanceToOtpPage(
+    loginUrl: string,
+    body: string,
+    loginHtmlForDump: string,
+  ): Promise<string> {
     const otpUrl = PORTAL_ORIGIN + PATHS.otpSms;
     let current = await this.transport.request(loginUrl, {
       method: "POST",
@@ -227,6 +252,13 @@ export class ClalitAuth {
         return html;
       }
       if (looksLikeCaptchaLoginPage(html)) {
+        // Prefer the response HTML (may show validators); fall back to pre-POST shape.
+        const dumpHtml = html.length > 100 ? html : loginHtmlForDump;
+        await writeCaptchaRejectedDump({
+          pageHtml: dumpHtml,
+          postBody: body,
+          status: current.status,
+        });
         throw new AuthenticationError("CAPTCHA_REJECTED", current.status);
       }
 

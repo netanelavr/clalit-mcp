@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import { ClalitAuth, CAPTCHA_CHECK_BUDGET_MS } from "../src/auth.js";
 import { AuthenticationError } from "../src/errors.js";
 import { ClalitTransport } from "../src/transport.js";
@@ -19,12 +20,19 @@ function htmlResponse(body: string, init: ResponseInit = {}): Response {
   });
 }
 
+const prevConfigDir = process.env.CLALIT_CONFIG_DIR;
+
+afterEach(() => {
+  if (prevConfigDir === undefined) delete process.env.CLALIT_CONFIG_DIR;
+  else process.env.CLALIT_CONFIG_DIR = prevConfigDir;
+});
+
 describe("loginInteractive after CAPTCHA", () => {
   test("CAPTCHA_CHECK_BUDGET_MS is ~30s", () => {
     expect(CAPTCHA_CHECK_BUDGET_MS).toBe(30_000);
   });
 
-  test("login fixture POST includes BotDetect VCID and submit button", async () => {
+  test("login fixture POST uses UniqueIDs, LBD_VCID, and btnSendOTP event target", async () => {
     let posted = "";
     const fetchMock: typeof fetch = async (input, init) => {
       const url = String(input);
@@ -56,14 +64,17 @@ describe("loginInteractive after CAPTCHA", () => {
       readOtp: async () => "123456",
     });
     const params = new URLSearchParams(posted);
-    expect(params.get("tbCaptchaLogin")).toBe("AB12");
-    expect(params.get("BDC_VCID_c_onlineweb_general_infootplogin_captchaLogin")).toBe(
+    expect(params.get("ctl00$cphBody$tbCaptchaLogin")).toBe("AB12");
+    expect(params.get("ctl00$cphBody$tbUserId")).toBe("123456789");
+    expect(params.get("tbCaptchaLogin")).toBeNull();
+    expect(params.get("tbUserId")).toBeNull();
+    expect(params.get("LBD_VCID_c_general_infootplogin_ctl00_cphbody_captchalogin")).toBe(
       "fixture-instance-id",
     );
-    expect(params.get("btnLogin")).toBe("כניסה");
-    expect(params.get("tbUserId")).toBe("123456789");
+    expect(params.get("__EVENTTARGET")).toBe("ctl00$cphBody$btnSendOTP");
+    expect(params.get("ctl00$BottomMenuModalDialog$MyButtonCtrl")).toBeNull();
+    expect(params.get("btnLogin")).toBeNull();
   });
-
 
   test("advances to OTP after captcha POST (redirect to OTP)", async () => {
     const calls: string[] = [];
@@ -110,15 +121,16 @@ describe("loginInteractive after CAPTCHA", () => {
     expect(calls.some((c) => c.includes("OTPSMSVerification"))).toBe(true);
   });
 
-  test("posts the answer only in tbCaptchaLogin and keeps BotDetect id", async () => {
+  test("posts the answer only in captcha field and keeps BotDetect id (legacy short names)", async () => {
     const html = `<!DOCTYPE html><html><body><form>
       <input type="hidden" name="__VIEWSTATE" value="VS" />
       <input type="hidden" name="__VIEWSTATEGENERATOR" value="G" />
       <input type="hidden" name="__EVENTVALIDATION" value="EV" />
       <input type="hidden" name="BDC_VCID_c_onlineweb_general_infootplogin_captchaLogin" value="captcha-instance-id" />
-      <input type="text" name="tbUserId" />
-      <input type="text" name="tbCaptchaLogin" />
-      <img src="/BotDetectCaptcha.ashx?get=image&amp;c=captchaLogin" alt="CAPTCHA" />
+      <input type="text" name="tbUserId" id="tbUserId" />
+      <input type="text" name="tbCaptchaLogin" id="tbCaptchaLogin" />
+      <input type="submit" name="btnLogin" value="Go" />
+      <img src="/BotDetectCaptcha.ashx?get=image&amp;c=captchaLogin&amp;d=captcha-instance-id" alt="CAPTCHA" />
     </form></body></html>`;
     let posted = "";
     const fetchMock: typeof fetch = async (input, init) => {
@@ -155,9 +167,13 @@ describe("loginInteractive after CAPTCHA", () => {
     expect(params.get("BDC_VCID_c_onlineweb_general_infootplogin_captchaLogin")).toBe(
       "captcha-instance-id",
     );
+    expect(params.get("btnLogin")).toBe("Go");
   });
 
-  test("throws CAPTCHA_REJECTED when POST redisplays login CAPTCHA", async () => {
+  test("throws CAPTCHA_REJECTED and writes redacted diagnostic dump", async () => {
+    const dumpDir = mkdtempSync(join(tmpdir(), "clalit-dump-"));
+    process.env.CLALIT_CONFIG_DIR = dumpDir;
+
     const fetchMock: typeof fetch = async (input, init) => {
       const url = String(input);
       if (url.includes("infootplogin.aspx") && (init?.method ?? "GET") === "GET") {
@@ -182,6 +198,21 @@ describe("loginInteractive after CAPTCHA", () => {
         readOtp: async () => "000000",
       }),
     ).rejects.toMatchObject({ code: "CAPTCHA_REJECTED" });
+
+    const dumps = readdirSync(dumpDir).filter((f) => f.startsWith("captcha-rejected-"));
+    expect(dumps.length).toBe(1);
+    const dump = JSON.parse(readFileSync(join(dumpDir, dumps[0]!), "utf8")) as {
+      postBody: { keys: string[] };
+      loginHtmlShape: { resolved: { userIdField?: string; loginEventTarget?: string } };
+    };
+    expect(dump.postBody.keys).toContain("ctl00$cphBody$tbUserId");
+    expect(dump.postBody.keys).toContain("__EVENTTARGET");
+    expect(dump.loginHtmlShape.resolved.userIdField).toBe("ctl00$cphBody$tbUserId");
+    expect(dump.loginHtmlShape.resolved.loginEventTarget).toBe("ctl00$cphBody$btnSendOTP");
+    const raw = readFileSync(join(dumpDir, dumps[0]!), "utf8");
+    expect(raw).not.toContain("WRONG");
+    expect(raw).not.toContain("123456789");
+    expect(raw).not.toContain("/wEPDwUKLOGINVIEWSTATE");
   });
 
   test("throws TIMEOUT when captcha POST hangs past transport abort", async () => {
