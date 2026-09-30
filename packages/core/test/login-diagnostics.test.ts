@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import {
+  summarizeCaptchaRejectHints,
   summarizeLoginHtmlShape,
   summarizePostBodyKeys,
 } from "../src/login-diagnostics.js";
@@ -38,4 +39,22 @@ describe("login diagnostics", () => {
     expect(JSON.stringify(summary)).not.toContain("123456789");
     expect(JSON.stringify(summary)).not.toContain("AB12");
   });
+
+  test("captcha reject hints: HasOTP success vs visible Red mismatch", () => {
+    const success = `<span id="cvClalitInfoCaptchaLogin" style="color:Red;display:none;">x</span>
+<script>setCookie('HasOTP', '-otp-sms', 90);redirectInfoToOnline('/OnlineWeb/General/Login.aspx');</script>`;
+    const successHints = summarizeCaptchaRejectHints(success);
+    expect(successHints.hasHasOtpSetCookie).toBe(true);
+    expect(successHints.hasRedirectInfoToOnlineLogin).toBe(true);
+    expect(successHints.cvCaptchaDisplayNone).toBe(true);
+    expect(successHints.cvCaptchaVisibleRed).toBe(false);
+
+    const mismatch = `<span id="cvClalitInfoCaptchaLogin" style="color:Red;">התווים לא זהים</span>`;
+    const mismatchHints = summarizeCaptchaRejectHints(mismatch);
+    expect(mismatchHints.hasHasOtpSetCookie).toBe(false);
+    expect(mismatchHints.hasRedirectInfoToOnlineLogin).toBe(false);
+    expect(mismatchHints.cvCaptchaDisplayNone).toBe(false);
+    expect(mismatchHints.cvCaptchaVisibleRed).toBe(true);
+  });
+
 });

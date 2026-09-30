@@ -204,15 +204,131 @@ describe("loginInteractive after CAPTCHA", () => {
     const dump = JSON.parse(readFileSync(join(dumpDir, dumps[0]!), "utf8")) as {
       postBody: { keys: string[] };
       loginHtmlShape: { resolved: { userIdField?: string; loginEventTarget?: string } };
+      captchaRejectHints: {
+        hasHasOtpSetCookie: boolean;
+        hasRedirectInfoToOnlineLogin: boolean;
+        cvCaptchaDisplayNone: boolean;
+        cvCaptchaVisibleRed: boolean;
+      };
     };
     expect(dump.postBody.keys).toContain("ctl00$cphBody$tbUserId");
     expect(dump.postBody.keys).toContain("__EVENTTARGET");
     expect(dump.loginHtmlShape.resolved.userIdField).toBe("ctl00$cphBody$tbUserId");
     expect(dump.loginHtmlShape.resolved.loginEventTarget).toBe("ctl00$cphBody$btnSendOTP");
+    expect(dump.captchaRejectHints.hasHasOtpSetCookie).toBe(false);
+    expect(dump.captchaRejectHints.hasRedirectInfoToOnlineLogin).toBe(false);
+    expect(dump.captchaRejectHints.cvCaptchaVisibleRed).toBe(false);
     const raw = readFileSync(join(dumpDir, dumps[0]!), "utf8");
     expect(raw).not.toContain("WRONG");
     expect(raw).not.toContain("123456789");
     expect(raw).not.toContain("/wEPDwUKLOGINVIEWSTATE");
+  });
+
+
+  test("HasOTP setCookie + redirectInfoToOnline follows Login.aspx to OTP", async () => {
+    const hasOtpHtml = `<!DOCTYPE html><html><body><form>
+      <input type="text" name="ctl00$cphBody$tbUserId" id="tbUserId" />
+      <input type="text" name="ctl00$cphBody$tbCaptchaLogin" id="tbCaptchaLogin" />
+      <img src="/BotDetectCaptcha.ashx?get=image&amp;c=x" alt="CAPTCHA" />
+      <span id="cvClalitInfoCaptchaLogin" style="color:Red;display:none;">התווים לא זהים</span>
+      <script>
+      setCookie('HasOTP', '-otp-sms', 90);redirectInfoToOnline('/OnlineWeb/General/Login.aspx');
+      </script>
+    </form></body></html>`;
+    const calls: string[] = [];
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      calls.push(`${init?.method ?? "GET"} ${new URL(url).pathname}`);
+      if (url.includes("infootplogin.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(loginHtml);
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && init?.method === "POST") {
+        // Success misclassified historically: 200 + captcha markup + HasOTP JS
+        return htmlResponse(hasOtpHtml);
+      }
+      if (url.includes("Login.aspx") && (init?.method ?? "GET") === "GET") {
+        // First Login.aspx after HasOTP → OTP; later (post-OTP) → portal home.
+        if (!calls.some((c) => c.includes("OTPSMSVerification"))) {
+          return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+        }
+        return htmlResponse("<html><body>portal</body></html>");
+      }
+      if (url.includes("OTPSMSVerification.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(otpHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && init?.method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.login } });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const session = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "OKOK",
+      readOtp: async () => "123456",
+    });
+    expect(session.version).toBe(1);
+    expect(calls).toContain(`GET ${PATHS.login}`);
+    expect(calls.some((c) => c.includes("OTPSMSVerification"))).toBe(true);
+    expect(calls.filter((c) => c.startsWith("POST") && c.includes("infootplogin")).length).toBe(1);
+  });
+
+  test("real captcha mismatch with visible Red validator throws CAPTCHA_REJECTED", async () => {
+    const dumpDir = mkdtempSync(join(tmpdir(), "clalit-dump-"));
+    process.env.CLALIT_CONFIG_DIR = dumpDir;
+
+    const mismatchHtml = `<!DOCTYPE html><html><body><form>
+      <input type="text" name="ctl00$cphBody$tbUserId" id="tbUserId" />
+      <input type="text" name="ctl00$cphBody$tbCaptchaLogin" id="tbCaptchaLogin" />
+      <img src="/BotDetectCaptcha.ashx?get=image&amp;c=x" alt="CAPTCHA" />
+      <span id="cvClalitInfoCaptchaLogin" role="alert" style="color:Red;">התווים לא זהים</span>
+    </form></body></html>`;
+
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("infootplogin.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(loginHtml);
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && init?.method === "POST") {
+        return htmlResponse(mismatchHtml);
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    await expect(
+      auth.loginInteractive("123456789", {
+        solveCaptcha: async () => "WRONG",
+        readOtp: async () => "000000",
+      }),
+    ).rejects.toMatchObject({ code: "CAPTCHA_REJECTED" });
+
+    const dumps = readdirSync(dumpDir).filter((f) => f.startsWith("captcha-rejected-"));
+    expect(dumps.length).toBe(1);
+    const dump = JSON.parse(readFileSync(join(dumpDir, dumps[0]!), "utf8")) as {
+      captchaRejectHints: {
+        hasHasOtpSetCookie: boolean;
+        hasRedirectInfoToOnlineLogin: boolean;
+        cvCaptchaDisplayNone: boolean;
+        cvCaptchaVisibleRed: boolean;
+      };
+    };
+    expect(dump.captchaRejectHints.hasHasOtpSetCookie).toBe(false);
+    expect(dump.captchaRejectHints.hasRedirectInfoToOnlineLogin).toBe(false);
+    expect(dump.captchaRejectHints.cvCaptchaDisplayNone).toBe(false);
+    expect(dump.captchaRejectHints.cvCaptchaVisibleRed).toBe(true);
   });
 
   test("throws TIMEOUT when captcha POST hangs past transport abort", async () => {

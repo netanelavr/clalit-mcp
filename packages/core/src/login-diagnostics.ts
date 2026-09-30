@@ -156,6 +156,40 @@ export function summarizeLoginHtmlShape(pageHtml: string): LoginHtmlShapeDump {
   };
 }
 
+
+/** Booleans only — never HTML snippets or cookie values — for CAPTCHA_REJECTED dumps. */
+export function summarizeCaptchaRejectHints(pageHtml: string): {
+  hasHasOtpSetCookie: boolean;
+  hasRedirectInfoToOnlineLogin: boolean;
+  cvCaptchaDisplayNone: boolean;
+  cvCaptchaVisibleRed: boolean;
+} {
+  const hasHasOtpSetCookie = /setCookie\s*\(\s*['"]HasOTP['"]/i.test(pageHtml);
+  const hasRedirectInfoToOnlineLogin =
+    /redirectInfoToOnline\s*\(\s*['"][^'"]*Login\.aspx['"]/i.test(pageHtml);
+
+  const cvTag =
+    /<(?:span|div)\b[^>]*\bid\s*=\s*["']cvClalitInfoCaptchaLogin["'][^>]*>/i.exec(pageHtml)?.[0] ??
+    /<(?:span|div)\b[^>]*\bid\s*=\s*["'][^"']*cvCaptcha[^"']*["'][^>]*>/i.exec(pageHtml)?.[0];
+
+  let cvCaptchaDisplayNone = false;
+  let cvCaptchaVisibleRed = false;
+  if (cvTag) {
+    const style = /\bstyle\s*=\s*["']([^"']*)["']/i.exec(cvTag)?.[1] ?? "";
+    const displayNone = /display\s*:\s*none/i.test(style);
+    const red = /color\s*:\s*(?:Red|#f00|#ff0000|rgb\(\s*255\s*,\s*0\s*,\s*0\s*\))/i.test(style);
+    cvCaptchaDisplayNone = displayNone;
+    cvCaptchaVisibleRed = red && !displayNone;
+  }
+
+  return {
+    hasHasOtpSetCookie,
+    hasRedirectInfoToOnlineLogin,
+    cvCaptchaDisplayNone,
+    cvCaptchaVisibleRed,
+  };
+}
+
 /** POST body key list only; values are never retained. */
 export function summarizePostBodyKeys(body: string): {
   keys: string[];
@@ -192,6 +226,7 @@ export async function writeCaptchaRejectedDump(opts: {
       reason: "CAPTCHA_REJECTED",
       at: new Date().toISOString(),
       ...(opts.status !== undefined ? { httpStatus: opts.status } : {}),
+      captchaRejectHints: summarizeCaptchaRejectHints(opts.pageHtml),
       loginHtmlShape: summarizeLoginHtmlShape(opts.pageHtml),
       // For comparison: what extractSubmitFields would have added (names only).
       extractSubmitFieldNames: Object.keys(extractSubmitFields(opts.pageHtml)),

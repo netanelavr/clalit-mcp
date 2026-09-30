@@ -76,6 +76,20 @@ function looksLikeCaptchaLoginPage(html: string): boolean {
   return /tbCaptchaLogin|tbUserId/i.test(html) && /captcha/i.test(html);
 }
 
+/**
+ * After a correct BotDetect answer Clalit often returns HTTP 200 HTML that still
+ * contains the captcha form, plus JS:
+ *   setCookie('HasOTP', '-otp-sms', 90);
+ *   redirectInfoToOnline('/OnlineWeb/General/Login.aspx');
+ * Treat that as captcha accepted (browser would follow to Login.aspx → OTP).
+ */
+function looksLikeHasOtpAcceptedRedirect(html: string): boolean {
+  return (
+    /setCookie\s*\(\s*['"]HasOTP['"]/i.test(html) &&
+    /redirectInfoToOnline\s*\(\s*['"][^'"]*Login\.aspx['"]/i.test(html)
+  );
+}
+
 function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
@@ -226,7 +240,8 @@ export class ClalitAuth {
 
   /**
    * POST captcha + ID, follow redirects / OTP GET, and return OTP page HTML.
-   * Throws CAPTCHA_REJECTED when Clalit redisplays the login CAPTCHA form.
+   * Throws CAPTCHA_REJECTED when Clalit redisplays the login CAPTCHA form
+   * without a HasOTP → Login.aspx success redirect.
    */
   async #advanceToOtpPage(
     loginUrl: string,
@@ -234,6 +249,7 @@ export class ClalitAuth {
     loginHtmlForDump: string,
   ): Promise<string> {
     const otpUrl = PORTAL_ORIGIN + PATHS.otpSms;
+    const portalLoginUrl = PORTAL_ORIGIN + PATHS.login;
     let current = await this.transport.request(loginUrl, {
       method: "POST",
       allowLoginHtml: true,
@@ -246,6 +262,7 @@ export class ClalitAuth {
     });
     let html = await readText(current);
     let triedOtpGet = false;
+    let followedHasOtpRedirect = false;
 
     for (let hops = 0; hops < 8; hops += 1) {
       if (looksLikeBotChallenge(html, current.status)) {
@@ -253,6 +270,16 @@ export class ClalitAuth {
       }
       if (looksLikeOtpPage(html)) {
         return html;
+      }
+      // Captcha accepted: JS redirect to Login.aspx (still captcha-shaped HTML).
+      if (looksLikeHasOtpAcceptedRedirect(html)) {
+        if (followedHasOtpRedirect) {
+          throw new AuthenticationError("OTP_PAGE_MISSING", current.status);
+        }
+        followedHasOtpRedirect = true;
+        current = await this.transport.request(portalLoginUrl, { allowLoginHtml: true });
+        html = await readText(current);
+        continue;
       }
       if (looksLikeCaptchaLoginPage(html)) {
         // Prefer the response HTML (may show validators); fall back to pre-POST shape.
