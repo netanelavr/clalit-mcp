@@ -12,8 +12,10 @@ import {
   resolveInputName,
 } from "./captcha.js";
 import {
+  summarizePostBodyKeys,
   writeCaptchaRejectedDump,
   writeLoginHopDump,
+  writeOtpRedisplayDump,
   type LoginHopDiagnostic,
 } from "./login-diagnostics.js";
 import {
@@ -42,10 +44,11 @@ import {
  *    LBD_VCID_… (BotDetect instance id), __EVENTTARGET=ctl00$cphBody$btnSendOTP,
  *    plus __VIEWSTATE…
  * 2. GET/POST /OnlineWeb/General/OTPSMSVerification.aspx — field txtClientOTP,
+ *    hidden ctl00$cphBody$hdnRegExp (when present), 
  *    __EVENTTARGET=ctl00$cphBody$btnContinue$lnkSubButton (LinkButton).
- *    Empty event target redisplays the OTP form (HTTP 200, no PostOtpAuth).
- * 3. GET /OnlineWeb/General/Login.aspx only after that postback (302 / Object moved).
- *    A cold GET sets .ONLINEAUTH without PostOtpAuth/AfterLogin and labs stays logged out.
+ *    Live HTML uses &#39;-encoded __doPostBack; empty EVENTTARGET redisplays OTP (200).
+ * 3. Successful postback: 302 → PersonalDetails.aspx (PostOtpAuth). Not Login.
+ *    A cold Login.aspx GET without PostOtpAuth only sets .ONLINEAUTH; labs stays out.
  *
  * Imperva sits in front. Datacenter / headless IPs get Error 16.
  * This package NEVER solves or bypasses CAPTCHA / Imperva. The human solves
@@ -201,6 +204,28 @@ function otpEntryFormPresent(html: string): boolean {
   return /<input\b[^>]*\b(?:name|id)\s*=\s*["'][^"']*txtClientOTP[^"']*["']/i.test(html);
 }
 
+/** Best-effort: visible validation / error chrome on a redisplayed OTP page (no values). */
+function otpValidationMessagePresent(html: string): boolean {
+  if (/validation.*?error|error.*?validation|Validator|ValidationSummary/i.test(html) &&
+      /(?:color\s*:\s*red|class\s*=\s*["'][^"']*error|סיסמה|שגוי|לא תקין|קוד|otp)/i.test(html)) {
+    return true;
+  }
+  // Visible Red validator spanning OTP-ish copy (display not none).
+  if (/style\s*=\s*["'][^"']*color\s*:\s*red[^"']*["'][^>]*>[^<]*(?:קוד|OTP|סיסמה|שגוי|לא)/i.test(html)) {
+    return true;
+  }
+  if (/id\s*=\s*["'][^"']*(?:cv|lbl).*?(?:OTP|Code|Error)[^"']*["'][^>]*(?:style\s*=\s*["'][^"']*display\s*:\s*none)?/i.test(html)) {
+    // Only count when not display:none
+    const re = /<(?:span|div|label)\b[^>]*\bid\s*=\s*["'][^"']*(?:cv|lbl)[^"']*(?:OTP|Code|Error)[^"']*["'][^>]*>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null) {
+      const tag = m[0]!;
+      if (!/display\s*:\s*none/i.test(tag)) return true;
+    }
+  }
+  return false;
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(onTimeout()), ms);
@@ -328,7 +353,8 @@ export class ClalitAuth {
     // Live page posts via LinkButton, not a type=submit. Empty __EVENTTARGET
     // redisplays OTPSMSVerification (200, no PostOtpAuth) and a later cold
     // Login.aspx GET only sets .ONLINEAUTH.
-    const otpEventTarget = extractOtpEventTarget(otpHtml) ?? "";
+    const otpEventTarget =
+      extractOtpEventTarget(otpHtml) ?? "ctl00$cphBody$btnContinue$lnkSubButton";
     const otpSubmitFields = otpEventTarget ? {} : extractSubmitFields(otpHtml);
     const code = await prompts.readOtp({
       message: "Enter the SMS one-time code from Clalit.",
@@ -341,6 +367,7 @@ export class ClalitAuth {
       otpEventTarget,
       "",
     );
+    const otpPostSummary = summarizePostBodyKeys(otpBody);
     const verified = await this.transport.request(otpUrl, {
       method: "POST",
       allowLoginHtml: true,
@@ -351,8 +378,22 @@ export class ClalitAuth {
       },
       body: otpBody,
     });
-    // OTP POST + Login.aspx/portal hops set auth cookies via Set-Cookie (and JS
-    // setCookie mirrors). Follow the full chain and merge into the jar before export.
+    // Redacted dump on OTP 200 redisplay (field names + EVENTTARGET only).
+    try {
+      const peekHtml = await verified.clone().text();
+      if (verified.status === 200 && otpEntryFormPresent(peekHtml)) {
+        await writeOtpRedisplayDump({
+          fieldNames: otpPostSummary.keys,
+          eventTarget: otpEventTarget,
+          validationMessagePresent: otpValidationMessagePresent(peekHtml),
+          status: verified.status,
+        });
+      }
+    } catch {
+      /* diagnostic only */
+    }
+    // OTP POST + portal hops (successful HAR: 302 → PersonalDetails.aspx, not Login).
+    // Follow Set-Cookie / document.cookie into the jar before export.
     const hops = await this.#completePortalSessionAfterOtp(verified, otpUrl);
 
     // Fail-closed: do not markAuthenticated / write session on incomplete jars.
@@ -364,19 +405,23 @@ export class ClalitAuth {
 
   /**
    * After OTPSMSVerification succeeds, follow Location / Object-moved / JS redirects,
-   * mirror setCookie(...) into the jar, and ensure Login.aspx → portal runs so
-   * exportSession persists portal auth cookies (not only ASP.NET_SessionId).
+   * mirror setCookie(...) into the jar. Successful live HAR (2026-09): 302 →
+   * PersonalDetails.aspx (not Login). Cold-GET Login.aspx only when portal auth
+   * cookies exist and neither Login nor PersonalDetails was already hit —
+   * otherwise Login.aspx is anonymous (.ONLINEAUTH only; labs still 302s).
    */
   async #completePortalSessionAfterOtp(
     otpResponse: Response,
     otpUrl: string,
   ): Promise<LoginHopDiagnostic[]> {
     const hops = await this.#followAuthRedirectChain(otpResponse, otpUrl, 8);
-    const touchedLogin = hops.some((h) => /\/Login\.aspx\b/i.test(h.url));
+    const touchedPortalLanding = hops.some((h) =>
+      /\/(?:Login|PersonalDetails)\.aspx\b/i.test(h.url),
+    );
     // Do not cold-GET Login.aspx unless the OTP response already set portal auth
     // cookies. Otherwise Login.aspx is the anonymous login page: it sets
     // .ONLINEAUTH and labs still 302s (dump 2026-09-30T10:16:57Z).
-    if (!touchedLogin) {
+    if (!touchedPortalLanding) {
       const names = await this.transport.listCookieNames();
       if (names.some(isPortalAuthCookieName)) {
         const loginUrl = PORTAL_ORIGIN + PATHS.login;

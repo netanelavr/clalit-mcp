@@ -287,3 +287,35 @@ export async function writeLoginHopDump(opts: {
     return undefined;
   }
 }
+
+/**
+ * Redacted dump when OTP POST returns HTTP 200 still showing the OTP form.
+ * Field names + __EVENTTARGET used only — never cookie/OTP/viewstate values.
+ */
+export async function writeOtpRedisplayDump(opts: {
+  fieldNames: string[];
+  eventTarget: string;
+  validationMessagePresent: boolean;
+  status?: number;
+}): Promise<string | undefined> {
+  try {
+    const dir = clalitConfigDir();
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const path = join(dir, `otp-redisplay-${stamp}.json`);
+    const payload = {
+      version: 1,
+      kind: "otp-redisplay",
+      at: new Date().toISOString(),
+      reason: "otp_form_redisplay",
+      ...(opts.status !== undefined ? { httpStatus: opts.status } : {}),
+      fieldNames: opts.fieldNames,
+      eventTarget: opts.eventTarget,
+      validationMessagePresent: opts.validationMessagePresent,
+    };
+    await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+    return path;
+  } catch {
+    return undefined;
+  }
+}

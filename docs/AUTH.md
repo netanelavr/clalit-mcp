@@ -7,8 +7,8 @@ Host: `https://e-services.clalit.co.il`
 1. `POST /onlineweb/general/infootplogin.aspx`  
    Live fields (2026-09): `ctl00$cphBody$tbUserId`, `ctl00$cphBody$tbCaptchaLogin`, BotDetect `LBD_VCID_…` (hidden instance id; image query uses `t=`), `__EVENTTARGET=ctl00$cphBody$btnSendOTP` (LinkButton, not a type=submit), plus `__VIEWSTATE` / `__EVENTVALIDATION`. Older `BDC_VCID_*` + `btnLogin` submit shapes are still accepted when present.
 2. `GET/POST /OnlineWeb/General/OTPSMSVerification.aspx`  
-   Field `ctl00$cphBody$txtClientOTP`. Continue is the LinkButton `__EVENTTARGET=ctl00$cphBody$btnContinue$lnkSubButton` (not an empty postback). A correct postback returns `PostOtpAuth` (Set-Cookie or `document.cookie`) and a redirect / Object-moved to Login.
-3. `GET /OnlineWeb/General/Login.aspx` — only after that postback (often 302). Sets `AfterLogin`. A cold GET without `PostOtpAuth` only sets `.ONLINEAUTH` and labs still redirects to login.
+   Field `ctl00$cphBody$txtClientOTP`, plus hidden `ctl00$cphBody$hdnRegExp` when present (`^[0-9]{6,6}$`). Continue is the LinkButton `__EVENTTARGET=ctl00$cphBody$btnContinue$lnkSubButton`. Live HTML encodes `__doPostBack` quotes as `&#39;` / `&apos;` — parsers must accept those or EVENTTARGET stays empty and the OTP form redisplays (HTTP 200, no `PostOtpAuth`).
+3. Successful postback: **302 → `PersonalDetails.aspx`** (sets `PostOtpAuth` / portal auth). Not a cold `Login.aspx`. A cold `Login.aspx` GET without `PostOtpAuth` only sets `.ONLINEAUTH` and labs still redirects to login.
 
 No JSON auth API was observed. This is ASP.NET WebForms end-to-end.
 
@@ -43,6 +43,7 @@ Files:
 | `session.json` | Serialized cookie jar + `authenticatedAt` | `0600` |
 | `captcha-rejected-*.json` | Redacted CAPTCHA_REJECTED dump (HTML field shape + POST **keys** only; no ID/captcha/viewstate values) | `0600` |
 | `login-hops-*.json` | Redacted OTP→portal hop dump (URL/status/Set-Cookie **names**/jar **names** only) | `0600` |
+| `otp-redisplay-*.json` | When OTP POST returns 200 still showing the form: posted **field names** + `__EVENTTARGET` used + validation-message flag (never OTP/cookie values) | `0600` |
 
 Never log cookie values. Never commit this directory.
 

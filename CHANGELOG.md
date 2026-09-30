@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- OTP `__doPostBack` parsing accepts HTML entities (`&#39;` / `&apos;` / `&quot;`). Matching only raw quotes left `__EVENTTARGET` empty so OTPSMSVerification redisplayed (HTTP 200, no `PostOtpAuth`). Fallback UniqueID `ctl00$cphBody$btnContinue$lnkSubButton` when the OTP page is detected; round-trip hidden `hdnRegExp` when present. Successful live HAR lands on `PersonalDetails.aspx` (302), not cold Login. On OTP 200 redisplay, write redacted `otp-redisplay-*.json` (field names + event target only).
+
 - OTP postback sends `__EVENTTARGET=ctl00$cphBody$btnContinue$lnkSubButton` (live LinkButton). An empty event target redisplayed OTPSMSVerification with no `PostOtpAuth`; a cold `Login.aspx` GET then only set `.ONLINEAUTH` and labs stayed on the login redirect. Follow `Login.aspx` only after portal auth cookies (or a real redirect). `labs_login_redirect` no longer blames missing Imperva cookies.
 
 - Login CAPTCHA: do not overwrite Libre BotDetect `LBD_VCID` with image query `t=` (cache-buster). Prefer the VCID already in the HTML.

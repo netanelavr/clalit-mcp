@@ -159,27 +159,44 @@ export function extractSubmitFields(pageHtml: string): Record<string, string> {
  * ASP.NET postback target for the SMS OTP continue control.
  * Live Clalit (2026-09): LinkButton ctl00$cphBody$btnContinue$lnkSubButton
  * (id ctl00_cphBody_btnContinue_lnkSubButton), not an empty __EVENTTARGET.
+ *
+ * Live HTML encodes quotes as &#39; / &apos; / &quot; inside __doPostBack(...).
+ * Matching only " / ' / &quot; left EVENTTARGET empty → OTP form 200 redisplay.
  */
 export function extractOtpEventTarget(pageHtml: string): string | undefined {
+  // Live pages often HTML-encode quotes as &#39; / &apos; / &quot;.
+  const q = String.raw`(?:&quot;|&apos;|&#39;|["'])`;
   const targets = [
-    ...pageHtml.matchAll(/WebForm_PostBackOptions\(\s*(?:&quot;|["'])([^"'&]+)(?:&quot;|["'])/gi),
-    ...pageHtml.matchAll(/__doPostBack\(\s*(?:&quot;|["'])([^"'&]+)(?:&quot;|["'])/gi),
+    ...pageHtml.matchAll(new RegExp(String.raw`WebForm_PostBackOptions\(\s*${q}([^"'&]+)${q}`, "gi")),
+    ...pageHtml.matchAll(new RegExp(String.raw`__doPostBack\(\s*${q}([^"'&]+)${q}`, "gi")),
   ].map((m) => m[1]!);
 
-  const continueBtn = targets.find((t) => /btnContinue/i.test(t) && !/Voice/i.test(t));
+  const continueBtn = targets.find(
+    (t) => /btnContinue/i.test(t) && !/Voice/i.test(t) && !/ModalDialog|ApproveAcs|BottomMenu/i.test(t),
+  );
   if (continueBtn) return continueBtn;
 
   const other = targets.find(
     (t) =>
       /(?:btnCheckOTP|btnVerifyOTP|btnOtp|btnConfirmOtp|lnkSubButton)$/i.test(t) &&
       !/Voice/i.test(t) &&
-      !/btnSendOTP/i.test(t),
+      !/btnSendOTP/i.test(t) &&
+      !/ModalDialog|ApproveAcs|BottomMenu/i.test(t),
   );
   if (other) return other;
 
   const idMatch = /\bid\s*=\s*["']([^"']*btnContinue(?:_lnkSubButton)?)["']/i.exec(pageHtml);
   if (idMatch?.[1] && !/Voice/i.test(idMatch[1])) {
     return idMatch[1].replace(/_/g, "$");
+  }
+  // Successful manual HAR (2026-09): this LinkButton. Prefer it over empty
+  // __EVENTTARGET which redisplays OTPSMSVerification with HTTP 200.
+  if (
+    /txtClientOTP|OTPSMSVerification/i.test(pageHtml) ||
+    /btnContinue/i.test(pageHtml) ||
+    /__doPostBack\([^)]*btnContinue/i.test(pageHtml)
+  ) {
+    return "ctl00$cphBody$btnContinue$lnkSubButton";
   }
   return undefined;
 }

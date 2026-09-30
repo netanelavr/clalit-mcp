@@ -13,6 +13,7 @@ const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const loginHtml = readFileSync(join(fixtures, "login-page.html"), "utf8");
 const otpHtml = readFileSync(join(fixtures, "otp-page.html"), "utf8");
 const otpContinueHtml = readFileSync(join(fixtures, "otp-continue.html"), "utf8");
+const otpContinueEntitiesHtml = readFileSync(join(fixtures, "otp-continue-entities.html"), "utf8");
 
 function htmlResponse(body: string, init: ResponseInit = {}): Response {
   return new Response(body, {
@@ -821,9 +822,24 @@ const otpRedisplayHtml = `${otpContinueHtml}
 <script>redirectInfoToOnline('/OnlineWeb/General/Login.aspx');</script>`;
 
 describe("post-OTP hop patterns", () => {
+  test("extractOtpEventTarget reads HTML-entity-encoded doPostBack quotes", () => {
+    const html = `<a href="javascript:__doPostBack(&#39;ctl00$cphBody$btnContinue$lnkSubButton&#39;,&#39;&#39;)">x</a>`;
+    expect(extractOtpEventTarget(html)).toBe("ctl00$cphBody$btnContinue$lnkSubButton");
+    expect(extractOtpEventTarget(otpContinueEntitiesHtml)).toBe(
+      "ctl00$cphBody$btnContinue$lnkSubButton",
+    );
+  });
+
   test("extractOtpEventTarget reads btnContinue LinkButton", () => {
     expect(extractOtpEventTarget(otpContinueHtml)).toBe("ctl00$cphBody$btnContinue$lnkSubButton");
-    expect(extractOtpEventTarget(otpHtml)).toBeUndefined();
+    // Bare OTP page (txtClientOTP only) still falls back to the live LinkButton UniqueID.
+    expect(extractOtpEventTarget(otpHtml)).toBe("ctl00$cphBody$btnContinue$lnkSubButton");
+  });
+
+  test("extractOtpEventTarget prefers btnContinue over modal &#39;-encoded lnkSubButton", () => {
+    expect(extractOtpEventTarget(otpContinueEntitiesHtml)).toBe(
+      "ctl00$cphBody$btnContinue$lnkSubButton",
+    );
   });
 
   test("labs_login_redirect copy does not blame Imperva; missing-defense copy does", () => {
@@ -968,6 +984,7 @@ describe("post-OTP hop patterns", () => {
     const params = new URLSearchParams(otpPosted);
     expect(params.get("__EVENTTARGET")).toBe("ctl00$cphBody$btnContinue$lnkSubButton");
     expect(params.get("ctl00$cphBody$txtClientOTP")).toBe("654321");
+    expect(params.get("ctl00$cphBody$hdnRegExp")).toBe("^[0-9]{6,6}$");
     const names = sessionCookieNames(session);
     expect(names).toContain("PostOtpAuth");
     expect(names).toContain("AfterLogin");
@@ -1056,5 +1073,129 @@ describe("post-OTP hop patterns", () => {
     const names = sessionCookieNames(session);
     expect(names).toContain("PostOtpAuth");
     expect(names).toContain("AfterLogin");
+  });
+
+  test("successful OTP 302 → PersonalDetails.aspx (live HAR) — no cold Login", async () => {
+    const dumpDir = mkdtempSync(join(tmpdir(), "clalit-hops-"));
+    process.env.CLALIT_CONFIG_DIR = dumpDir;
+    const requested: string[] = [];
+    let otpPosted = "";
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      requested.push(`${method} ${url}`);
+      if (url.includes("infootplogin.aspx") && method === "GET") {
+        return responseWithSetCookies(loginHtml, { cookies: DEFENSE_COOKIES });
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "GET") {
+        return htmlResponse(otpContinueEntitiesHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "POST") {
+        otpPosted = String(init?.body ?? "");
+        return responseWithSetCookies("<html><body>personal</body></html>", {
+          status: 302,
+          location: "/OnlineWeb/General/PersonalDetails.aspx",
+          cookies: ["PostOtpAuth=har; Path=/; HttpOnly", "AfterLogin=1; Path=/"],
+        });
+      }
+      if (url.includes("PersonalDetails.aspx")) {
+        return responseWithSetCookies("<html><body>details</body></html>", {
+          cookies: ["AfterLogin=1; Path=/"],
+        });
+      }
+      if (url.includes("Login.aspx")) {
+        return new Response("should-not-cold-get-login", { status: 500 });
+      }
+      return new Response("unexpected " + url, { status: 500 });
+    };
+    const auth = new ClalitAuth(
+      new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }),
+    );
+    const session = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "333333",
+    });
+    const params = new URLSearchParams(otpPosted);
+    expect(params.get("__EVENTTARGET")).toBe("ctl00$cphBody$btnContinue$lnkSubButton");
+    expect(params.get("ctl00$cphBody$hdnRegExp")).toBe("^[0-9]{6,6}$");
+    expect(requested.some((r) => r.includes("PersonalDetails.aspx"))).toBe(true);
+    expect(requested.some((r) => r.includes("Login.aspx"))).toBe(false);
+    const names = sessionCookieNames(session);
+    expect(names).toContain("PostOtpAuth");
+    expect(names).toContain("AfterLogin");
+  });
+
+  test("OTP 200 redisplay writes redacted field-name dump", async () => {
+    const dumpDir = mkdtempSync(join(tmpdir(), "clalit-hops-"));
+    process.env.CLALIT_CONFIG_DIR = dumpDir;
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("infootplogin.aspx") && method === "GET") {
+        return responseWithSetCookies(loginHtml, { cookies: DEFENSE_COOKIES });
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "GET") {
+        return htmlResponse(otpContinueEntitiesHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "POST") {
+        return htmlResponse(otpRedisplayHtml);
+      }
+      if (url.includes("LabsTestList.aspx")) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location:
+              "/OnlineWeb/General/Login.aspx?ReturnUrl=%2fOnlineWeb%2fServices%2fLabs%2fLabsTestList.aspx",
+          },
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    await expect(
+      auth.loginInteractive("123456789", {
+        solveCaptcha: async () => "AB12",
+        readOtp: async () => "444444",
+      }),
+    ).rejects.toMatchObject({ code: "OTP_SESSION_INCOMPLETE" });
+
+    const dumps = readdirSync(dumpDir).filter((f) => f.startsWith("otp-redisplay-"));
+    expect(dumps.length).toBe(1);
+    const dump = JSON.parse(readFileSync(join(dumpDir, dumps[0]!), "utf8")) as {
+      fieldNames: string[];
+      eventTarget: string;
+      validationMessagePresent: boolean;
+      httpStatus: number;
+    };
+    expect(dump.httpStatus).toBe(200);
+    expect(dump.eventTarget).toBe("ctl00$cphBody$btnContinue$lnkSubButton");
+    expect(dump.fieldNames).toEqual(
+      expect.arrayContaining([
+        "__EVENTTARGET",
+        "ctl00$cphBody$txtClientOTP",
+        "ctl00$cphBody$hdnRegExp",
+      ]),
+    );
+    expect(JSON.stringify(dump)).not.toMatch(/444444/);
+    // Field *names* may include __VIEWSTATE; values must never appear.
+    expect(JSON.stringify(dump)).not.toMatch(/wEPDwUK/);
   });
 });

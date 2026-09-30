@@ -10,7 +10,10 @@
   <input type="hidden" name="__EVENTARGUMENT" id="__EVENTARGUMENT" value="" />
   <input type="hidden" name="ctl00$cphBody$hdnRegExp" id="ctl00_cphBody_hdnRegExp" value="^[0-9]{6,6}$" />
   <input type="text" name="ctl00$cphBody$txtClientOTP" id="ctl00_cphBody_txtClientOTP" />
-  <a id="ctl00_cphBody_btnContinue_lnkSubButton" href="javascript:__doPostBack('ctl00$cphBody$btnContinue$lnkSubButton','')">continue</a>
+  <!-- Live ASP.NET encodes quotes as &#39; — extractOtpEventTarget must parse these. -->
+  <a id="ctl00_cphBody_btnContinue_lnkSubButton" href="javascript:__doPostBack(&#39;ctl00$cphBody$btnContinue$lnkSubButton&#39;,&#39;&#39;)">continue</a>
+  <!-- Modal chrome must not win over btnContinue -->
+  <a id="ctl00_BottomMenuModalDialog_btnControls_ApproveAcs_lnkSubButton" href="javascript:__doPostBack(&#39;ctl00$BottomMenuModalDialog$btnControls_ApproveAcs$lnkSubButton&#39;,&#39;&#39;)">ok</a>
 </form>
 </body>
 </html>
