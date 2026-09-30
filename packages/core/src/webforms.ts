@@ -83,12 +83,55 @@ export function looksLikeBotChallenge(html: string, status?: number): boolean {
   );
 }
 
+/** True when Location / href targets a Clalit login gate. */
+export function isLoginRedirectTarget(locationOrHref: string): boolean {
+  const raw = locationOrHref.trim();
+  if (!raw) return false;
+  let pathAndQuery = raw;
+  try {
+    if (/^https?:\/\//i.test(raw)) {
+      const u = new URL(raw);
+      pathAndQuery = `${u.pathname}${u.search}`;
+    }
+  } catch {
+    /* use raw */
+  }
+  return /(?:^|\/)(?:Login|InfoFullLogin|infootplogin|InfoOtpLogin)\.aspx\b/i.test(pathAndQuery);
+}
+
 /** Detect login / session-expired redirects in HTML. */
 export function looksLikeLoginPage(html: string): boolean {
-  const lower = html.slice(0, 12000).toLowerCase();
-  return (
+  const slice = html.slice(0, 12000);
+  const lower = slice.toLowerCase();
+  if (
     lower.includes("infootplogin.aspx") ||
     lower.includes("otpsmsverification.aspx") ||
     (lower.includes("tbuserid") && lower.includes("captcha"))
-  );
+  ) {
+    return true;
+  }
+  // ASP.NET "Object moved" interstitial → Login.aspx?ReturnUrl=...
+  if (/object\s+moved/i.test(slice)) {
+    const href = slice.match(/href\s*=\s*["']([^"']+)["']/i)?.[1];
+    if (href && isLoginRedirectTarget(href)) return true;
+    if (isLoginRedirectTarget(slice)) return true;
+  }
+  // Explicit login ReturnUrl (avoid matching bare footer Login.aspx links)
+  if (/login\.aspx\?[^"'>\s]*returnurl=/i.test(slice)) return true;
+  if (/infofulllogin\.aspx/i.test(slice)) return true;
+  return false;
+}
+
+/**
+ * Real LabsTestList chrome for an empty history page.
+ * Never treat ASP.NET "Object moved" + ReturnUrl=...LabsTestList as chrome.
+ */
+export function looksLikeLabsListChrome(html: string): boolean {
+  if (/object\s+moved/i.test(html)) return false;
+  if (looksLikeLoginPage(html)) return false;
+  if (/__VIEWSTATE/i.test(html) && /LabsHistory|gvTestListInDateRange|בדיקות מעבדה/i.test(html)) {
+    return true;
+  }
+  // LabsTestList in path text alone is not enough (ReturnUrl false positive).
+  return /LabsTestList/i.test(html) && /__VIEWSTATE/i.test(html) && !/ReturnUrl=/i.test(html);
 }

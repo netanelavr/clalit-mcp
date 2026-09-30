@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
-import { ParseError } from "../errors.js";
+import { ParseError, ReauthenticationRequired } from "../errors.js";
+import { looksLikeLabsListChrome, looksLikeLoginPage } from "../webforms.js";
 import type { LabDetailRef, LabListItem } from "./types.js";
 
 const DETAIL_PATH_HINT = /LabTestDetails\.aspx/i;
@@ -36,8 +37,13 @@ export function parseLabsListHtml(html: string): LabListItem[] {
       : $("table").filter((_, t) => $(t).find('a[href*="LabTestDetails.aspx"]').length > 0).first();
 
   if (grid.length === 0) {
-    // Empty history is valid if the list page chrome is present.
-    if (/LabsTestList|LabsHistory|בדיקות מעבדה/i.test(html)) return [];
+    // Login redirect "Object moved" bodies mention LabsTestList only inside ReturnUrl —
+    // never treat that as an empty labs list.
+    if (looksLikeLoginPage(html)) {
+      throw new ReauthenticationRequired();
+    }
+    // Empty history is valid only when real list chrome is present.
+    if (looksLikeLabsListChrome(html)) return [];
     throw new ParseError("LABS_LIST_SHAPE", "Labs list grid not found.");
   }
 

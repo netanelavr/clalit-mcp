@@ -90,6 +90,12 @@ function looksLikeHasOtpAcceptedRedirect(html: string): boolean {
   );
 }
 
+/** Value from setCookie('HasOTP', '…', …) when present. */
+function extractHasOtpCookieValue(html: string): string | undefined {
+  const m = html.match(/setCookie\s*\(\s*['"]HasOTP['"]\s*,\s*['"]([^'"]*)['"]/i);
+  return m?.[1];
+}
+
 function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
@@ -226,12 +232,30 @@ export class ClalitAuth {
     // Follow manual redirects toward portal home / labs
     let location = verified.headers.get("location");
     let hops = 0;
+    let lastHtml = "";
     while (location && hops < 8) {
       hops += 1;
       const next = location.startsWith("http") ? location : PORTAL_ORIGIN + location;
       const hop = await this.transport.request(next, { allowLoginHtml: true });
       location = hop.headers.get("location");
-      if (hop.status === 200 && !location) break;
+      if (hop.status === 200 && !location) {
+        lastHtml = await readText(hop);
+        break;
+      }
+    }
+    // OTP sometimes returns 200 with no Location. Ensure Login.aspx → portal so
+    // session.json cookies can access Labs (not just the OTP gate).
+    const stillAtAuthGate =
+      hops === 0 || looksLikeOtpPage(lastHtml) || looksLikeCaptchaLoginPage(lastHtml);
+    if (stillAtAuthGate) {
+      let hop = await this.transport.request(PORTAL_ORIGIN + PATHS.login, { allowLoginHtml: true });
+      location = hop.headers.get("location");
+      for (let i = 0; i < 8 && location; i += 1) {
+        const next = location.startsWith("http") ? location : PORTAL_ORIGIN + location;
+        hop = await this.transport.request(next, { allowLoginHtml: true });
+        location = hop.headers.get("location");
+        if (hop.status === 200 && !location) break;
+      }
     }
 
     this.transport.markAuthenticated();
@@ -277,6 +301,9 @@ export class ClalitAuth {
           throw new AuthenticationError("OTP_PAGE_MISSING", current.status);
         }
         followedHasOtpRedirect = true;
+        // Mirror browser setCookie('HasOTP', …) before following Login.aspx → OTP.
+        const hasOtpValue = extractHasOtpCookieValue(html) ?? "-otp-sms";
+        await this.transport.setCookie(`HasOTP=${hasOtpValue}; Path=/; Max-Age=7776000`);
         current = await this.transport.request(portalLoginUrl, { allowLoginHtml: true });
         html = await readText(current);
         continue;

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
+import { ReauthenticationRequired } from "../src/errors.js";
 import { decodeLabRef, encodeLabRef, parseLabsListHtml } from "../src/labs/list.js";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -26,5 +27,24 @@ describe("parseLabsListHtml", () => {
         <tr><th>תאריך</th></tr>
       </table></form></body></html>`;
     expect(parseLabsListHtml(html)).toEqual([]);
+  });
+
+  test("Object moved + ReturnUrl LabsTestList is reauth, not empty list", () => {
+    const html = `<html><head><title>Object moved</title></head><body>
+<h2>Object moved to <a href="/OnlineWeb/General/Login.aspx?ReturnUrl=%2fOnlineWeb%2fServices%2fLabs%2fLabsTestList.aspx">here</a>.</h2>
+</body></html>`;
+    expect(() => parseLabsListHtml(html)).toThrow(ReauthenticationRequired);
+    try {
+      parseLabsListHtml(html);
+      expect.unreachable("should throw");
+    } catch (err) {
+      expect(err).toMatchObject({ code: "REAUTHENTICATION_REQUIRED" });
+    }
+  });
+
+  test("does not treat ReturnUrl LabsTestList path alone as empty chrome", () => {
+    const html =
+      `<html><body>Object moved to Login.aspx?ReturnUrl=/OnlineWeb/Services/Labs/LabsTestList.aspx</body></html>`;
+    expect(() => parseLabsListHtml(html)).toThrow(ReauthenticationRequired);
   });
 });

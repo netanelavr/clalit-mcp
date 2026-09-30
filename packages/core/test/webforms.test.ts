@@ -5,7 +5,9 @@ import { describe, expect, test } from "vitest";
 import {
   buildPostBackBody,
   extractWebFormsState,
+  isLoginRedirectTarget,
   looksLikeBotChallenge,
+  looksLikeLabsListChrome,
   looksLikeLoginPage,
 } from "../src/webforms.js";
 
@@ -32,5 +34,24 @@ describe("webforms", () => {
     expect(looksLikeLoginPage(login)).toBe(true);
     expect(looksLikeBotChallenge("Imperva Error 16 — request rejected")).toBe(true);
     expect(looksLikeBotChallenge("<html>ok labs</html>")).toBe(false);
+  });
+
+  test("isLoginRedirectTarget recognizes Login / InfoFullLogin / infootplogin", () => {
+    expect(
+      isLoginRedirectTarget(
+        "/OnlineWeb/General/Login.aspx?ReturnUrl=%2fOnlineWeb%2fServices%2fLabs%2fLabsTestList.aspx",
+      ),
+    ).toBe(true);
+    expect(isLoginRedirectTarget("/onlineweb/general/infootplogin.aspx")).toBe(true);
+    expect(isLoginRedirectTarget("/OnlineWeb/General/InfoFullLogin.aspx")).toBe(true);
+    expect(isLoginRedirectTarget("/OnlineWeb/Services/Labs/LabsTestList.aspx")).toBe(false);
+  });
+
+  test("Object moved ReturnUrl body is login, not labs chrome", () => {
+    const html = `<html><head><title>Object moved</title></head><body>
+<h2>Object moved to <a href="/OnlineWeb/General/Login.aspx?ReturnUrl=%2fOnlineWeb%2fServices%2fLabs%2fLabsTestList.aspx">here</a>.</h2>
+</body></html>`;
+    expect(looksLikeLoginPage(html)).toBe(true);
+    expect(looksLikeLabsListChrome(html)).toBe(false);
   });
 });

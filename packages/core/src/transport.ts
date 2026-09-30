@@ -7,7 +7,11 @@ import {
 } from "./constants.js";
 import { ClalitError, ReauthenticationRequired, UpstreamError } from "./errors.js";
 import type { ClalitSession } from "./session.js";
-import { looksLikeBotChallenge, looksLikeLoginPage } from "./webforms.js";
+import {
+  isLoginRedirectTarget,
+  looksLikeBotChallenge,
+  looksLikeLoginPage,
+} from "./webforms.js";
 
 export type FetchFunction = (input: string | Request | URL, init?: RequestInit) => Promise<Response>;
 
@@ -35,6 +39,11 @@ function assertAllowed(url: string): void {
   }
 }
 
+function isRedirectStatus(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
+
 export class ClalitTransport {
   readonly #fetch: FetchFunction;
   readonly #jar: CookieJar;
@@ -54,8 +63,9 @@ export class ClalitTransport {
     this.#minGapMs = options.minGapMs ?? MIN_REQUEST_GAP_MS;
     this.#idleTtlMs = options.session?.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
     this.#authenticatedAt = options.session?.authenticatedAt;
+    // Await restore before any request: enqueue on the same serial queue (not fire-and-forget).
     if (options.session?.cookies) {
-      void this.#restoreCookies(options.session.cookies);
+      this.#queue = this.#restoreCookies(options.session.cookies);
     }
   }
 
@@ -65,6 +75,11 @@ export class ClalitTransport {
     for (const cookie of cookies) {
       await this.#jar.setCookie(cookie, PORTAL_ORIGIN);
     }
+  }
+
+  /** Set a raw Set-Cookie line on the portal jar (e.g. mirror browser HasOTP). */
+  async setCookie(raw: string, url = PORTAL_ORIGIN): Promise<void> {
+    await this.#jar.setCookie(raw, url);
   }
 
   async clearSession(): Promise<void> {
@@ -149,22 +164,38 @@ export class ClalitTransport {
           throw new ReauthenticationRequired(response.status);
         }
 
-        // Soft login detection on HTML
-        const ct = response.headers.get("content-type") ?? "";
-        if (!init.allowLoginHtml && ct.includes("text/html") && response.status === 200) {
-          const peek = await response.clone().text();
-          if (looksLikeBotChallenge(peek)) {
-            throw new UpstreamError("BOT_CHALLENGE", response.status);
-          }
-          if (looksLikeLoginPage(peek)) {
+        if (!init.allowLoginHtml) {
+          const location = response.headers.get("location");
+          if (
+            isRedirectStatus(response.status) &&
+            location &&
+            isLoginRedirectTarget(location)
+          ) {
             throw new ReauthenticationRequired(response.status);
           }
-          // Re-wrap peeked body for callers
-          return new Response(peek, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers,
-          });
+
+          // Soft login detection on HTML (200 labs page OR 302 Object-moved body)
+          const ct = response.headers.get("content-type") ?? "";
+          const checkHtml =
+            ct.includes("text/html") &&
+            (response.status === 200 || isRedirectStatus(response.status));
+          if (checkHtml) {
+            const peek = await response.clone().text();
+            if (looksLikeBotChallenge(peek, response.status)) {
+              throw new UpstreamError("BOT_CHALLENGE", response.status);
+            }
+            if (looksLikeLoginPage(peek)) {
+              throw new ReauthenticationRequired(response.status);
+            }
+            if (response.status === 200) {
+              // Re-wrap peeked body for callers
+              return new Response(peek, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: response.headers,
+              });
+            }
+          }
         }
 
         return response;
