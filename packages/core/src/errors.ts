@@ -19,6 +19,25 @@ export class ReauthenticationRequired extends ClalitError {
   }
 }
 
+/**
+ * Copy for OTP_SESSION_INCOMPLETE. labs_login_redirect must not blame Imperva:
+ * live dumps can already hold visid_incap_/incap_ses_/TS/_cls_ and still 302.
+ */
+export function otpSessionIncompleteMessage(
+  reason: "missing_portal_defense_cookies" | "labs_login_redirect",
+): string {
+  if (reason === "labs_login_redirect") {
+    return (
+      "OTP finished but LabsTestList still redirects to login. " +
+      "Imperva cookies are present; portal auth cookies (PostOtpAuth / AfterLogin) were not established, so the session was not saved."
+    );
+  }
+  return (
+    "OTP finished but the session jar is missing Imperva/TS cookies. " +
+    "Session was not saved. Retry on your Mac; Playwright cookie warm runs automatically when available."
+  );
+}
+
 const AUTH_MESSAGES: Record<string, string> = {
   INVALID_ID_FORMAT: "Enter a valid Israeli ID number (digits only).",
   INVALID_OTP_FORMAT: "Enter the SMS code (4–8 digits).",
@@ -31,8 +50,7 @@ const AUTH_MESSAGES: Record<string, string> = {
   CAPTCHA_CHECK_TIMEOUT:
     "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step in time. Try again, or use terminal login: clalit-mcp login",
   AUTHENTICATION_FAILED: "Clalit sign-in did not complete. Check the login step and try again.",
-  OTP_SESSION_INCOMPLETE:
-    "OTP finished but the session jar is incomplete (missing Imperva/TS cookies) or LabsTestList still redirects to login. Session was not saved. Retry on your Mac; Playwright cookie warm runs automatically when available.",
+  OTP_SESSION_INCOMPLETE: otpSessionIncompleteMessage("missing_portal_defense_cookies"),
 };
 
 export class AuthenticationError extends ClalitError {

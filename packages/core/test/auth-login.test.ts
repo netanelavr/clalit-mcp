@@ -4,13 +4,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
 import { ClalitAuth, CAPTCHA_CHECK_BUDGET_MS } from "../src/auth.js";
-import { AuthenticationError } from "../src/errors.js";
+import { AuthenticationError, otpSessionIncompleteMessage } from "../src/errors.js";
+import { extractOtpEventTarget } from "../src/captcha.js";
 import { ClalitTransport } from "../src/transport.js";
 import { PATHS, PORTAL_ORIGIN } from "../src/constants.js";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const loginHtml = readFileSync(join(fixtures, "login-page.html"), "utf8");
 const otpHtml = readFileSync(join(fixtures, "otp-page.html"), "utf8");
+const otpContinueHtml = readFileSync(join(fixtures, "otp-continue.html"), "utf8");
 
 function htmlResponse(body: string, init: ResponseInit = {}): Response {
   return new Response(body, {
@@ -643,12 +645,18 @@ describe("OTP fail-closed incomplete session", () => {
     };
 
     const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
-    await expect(
-      auth.loginInteractive("123456789", {
-        solveCaptcha: async () => "AB12",
-        readOtp: async () => "123456",
-      }),
-    ).rejects.toMatchObject({ code: "OTP_SESSION_INCOMPLETE" });
+    const thrown = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "123456",
+    }).then(
+      () => {
+        throw new Error("expected OTP_SESSION_INCOMPLETE");
+      },
+      (err: unknown) => err,
+    );
+    expect(thrown).toMatchObject({ code: "OTP_SESSION_INCOMPLETE" });
+    expect((thrown as Error).message).toMatch(/missing Imperva\/TS cookies/);
+    expect((thrown as Error).message).not.toMatch(/LabsTestList still redirects/);
 
     const dumps = readdirSync(dumpDir).filter((f) => f.startsWith("login-hops-"));
     expect(dumps.length).toBe(1);
@@ -715,12 +723,19 @@ describe("OTP fail-closed incomplete session", () => {
     };
 
     const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
-    await expect(
-      auth.loginInteractive("123456789", {
-        solveCaptcha: async () => "AB12",
-        readOtp: async () => "123456",
-      }),
-    ).rejects.toMatchObject({ code: "OTP_SESSION_INCOMPLETE" });
+    const thrown = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "123456",
+    }).then(
+      () => {
+        throw new Error("expected OTP_SESSION_INCOMPLETE");
+      },
+      (err: unknown) => err,
+    );
+    expect(thrown).toMatchObject({ code: "OTP_SESSION_INCOMPLETE" });
+    expect((thrown as Error).message).toMatch(/LabsTestList still redirects/);
+    expect((thrown as Error).message).toMatch(/PostOtpAuth/);
+    expect((thrown as Error).message).not.toMatch(/missing Imperva/i);
 
     const dumps = readdirSync(dumpDir).filter((f) => f.startsWith("login-hops-"));
     expect(dumps.length).toBe(1);
@@ -798,5 +813,248 @@ describe("AuthenticationError messages", () => {
   test("CAPTCHA_REJECTED has actionable message", () => {
     const err = new AuthenticationError("CAPTCHA_REJECTED");
     expect(err.message).toMatch(/CAPTCHA was rejected/i);
+  });
+});
+
+/** Live failure shape: OTP form still shown, embedded Login.aspx redirect, no auth cookies. */
+const otpRedisplayHtml = `${otpContinueHtml}
+<script>redirectInfoToOnline('/OnlineWeb/General/Login.aspx');</script>`;
+
+describe("post-OTP hop patterns", () => {
+  test("extractOtpEventTarget reads btnContinue LinkButton", () => {
+    expect(extractOtpEventTarget(otpContinueHtml)).toBe("ctl00$cphBody$btnContinue$lnkSubButton");
+    expect(extractOtpEventTarget(otpHtml)).toBeUndefined();
+  });
+
+  test("labs_login_redirect copy does not blame Imperva; missing-defense copy does", () => {
+    expect(otpSessionIncompleteMessage("labs_login_redirect")).not.toMatch(/missing Imperva/i);
+    expect(otpSessionIncompleteMessage("labs_login_redirect")).toMatch(/PostOtpAuth/);
+    expect(otpSessionIncompleteMessage("missing_portal_defense_cookies")).toMatch(/Imperva/);
+  });
+
+  test("OTP form redisplay (200, no PostOtpAuth) does not cold-GET Login.aspx", async () => {
+    const dumpDir = mkdtempSync(join(tmpdir(), "clalit-hops-"));
+    process.env.CLALIT_CONFIG_DIR = dumpDir;
+    const requested: string[] = [];
+
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      requested.push(`${method} ${url}`);
+      if (url.includes("infootplogin.aspx") && method === "GET") {
+        return responseWithSetCookies(loginHtml, { cookies: DEFENSE_COOKIES });
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "GET") {
+        return htmlResponse(otpContinueHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "POST") {
+        // Failing live hop: 200, no Set-Cookie, form still present, chrome redirect.
+        return htmlResponse(otpRedisplayHtml);
+      }
+      if (url.includes("Login.aspx")) {
+        return responseWithSetCookies("<html><body>anonymous login</body></html>", {
+          cookies: [
+            ".ONLINEAUTH=cleared; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+            ".ONLINEAUTH=anon; Path=/; HttpOnly",
+          ],
+        });
+      }
+      if (url.includes("LabsTestList.aspx")) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location:
+              "/OnlineWeb/General/Login.aspx?ReturnUrl=%2fOnlineWeb%2fServices%2fLabs%2fLabsTestList.aspx",
+          },
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const thrown = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "123456",
+    }).then(
+      () => {
+        throw new Error("expected OTP_SESSION_INCOMPLETE");
+      },
+      (err: unknown) => err,
+    );
+    expect(thrown).toMatchObject({ code: "OTP_SESSION_INCOMPLETE" });
+    expect((thrown as Error).message).not.toMatch(/missing Imperva/i);
+    expect((thrown as Error).message).toMatch(/PostOtpAuth/);
+    expect(requested.some((r) => r.includes("Login.aspx"))).toBe(false);
+
+    const dumps = readdirSync(dumpDir).filter((f) => f.startsWith("login-hops-"));
+    expect(dumps.length).toBe(1);
+    const dump = JSON.parse(readFileSync(join(dumpDir, dumps[0]!), "utf8")) as {
+      reason: string;
+      hops: Array<{ url: string; status: number; setCookieNames: string[] }>;
+      finalJarNames: string[];
+    };
+    expect(dump.reason).toBe("labs_login_redirect");
+    expect(dump.hops).toHaveLength(1);
+    expect(dump.hops[0]!.status).toBe(200);
+    expect(dump.hops[0]!.url).toMatch(/OTPSMSVerification/);
+    expect(dump.hops[0]!.setCookieNames).not.toContain("PostOtpAuth");
+    expect(dump.hops[0]!.setCookieNames).not.toContain("AfterLogin");
+    expect(dump.finalJarNames).not.toContain(".ONLINEAUTH");
+    expect(dump.finalJarNames).not.toContain("PostOtpAuth");
+    const raw = readFileSync(join(dumpDir, dumps[0]!), "utf8");
+    expect(raw).not.toContain("123456");
+    expect(raw).not.toContain("anon");
+  });
+
+  test("btnContinue postback: Object-moved Set-Cookie PostOtpAuth then Login AfterLogin", async () => {
+    process.env.CLALIT_CONFIG_DIR = mkdtempSync(join(tmpdir(), "clalit-hops-"));
+    let otpPosted = "";
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("infootplogin.aspx") && method === "GET") {
+        return htmlResponse(loginHtml);
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "GET") {
+        return htmlResponse(otpContinueHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "POST") {
+        otpPosted = String(init?.body ?? "");
+        const params = new URLSearchParams(otpPosted);
+        if (params.get("__EVENTTARGET") !== "ctl00$cphBody$btnContinue$lnkSubButton") {
+          return htmlResponse(otpRedisplayHtml);
+        }
+        const body = `<html><head><title>Object moved</title></head><body>
+<h2>Object moved to <a href="${PATHS.login}">here</a>.</h2></body></html>`;
+        return responseWithSetCookies(body, {
+          status: 200,
+          cookies: [
+            "ASP.NET_SessionId=otp-sess; Path=/",
+            "PostOtpAuth=from-object-moved; Path=/; HttpOnly",
+          ],
+        });
+      }
+      if (url.includes("Login.aspx")) {
+        return responseWithSetCookies("<html><body>portal</body></html>", {
+          cookies: ["AfterLogin=1; Path=/"],
+        });
+      }
+      return new Response("unexpected " + url, { status: 500 });
+    };
+
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
+    const session = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "654321",
+    });
+    const params = new URLSearchParams(otpPosted);
+    expect(params.get("__EVENTTARGET")).toBe("ctl00$cphBody$btnContinue$lnkSubButton");
+    expect(params.get("ctl00$cphBody$txtClientOTP")).toBe("654321");
+    const names = sessionCookieNames(session);
+    expect(names).toContain("PostOtpAuth");
+    expect(names).toContain("AfterLogin");
+    // Values stay out of assertions beyond the round-trip field check above.
+    expect(names).not.toContain("654321");
+  });
+
+  test("document.cookie PostOtpAuth on Object-moved is kept, then AfterLogin", async () => {
+    process.env.CLALIT_CONFIG_DIR = mkdtempSync(join(tmpdir(), "clalit-hops-"));
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("infootplogin.aspx") && method === "GET") return htmlResponse(loginHtml);
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "GET") return htmlResponse(otpContinueHtml);
+      if (url.includes("OTPSMSVerification.aspx") && method === "POST") {
+        const body = `<html><head><title>Object moved</title></head><body>
+<h2>Object moved to <a href="${PATHS.login}">here</a>.</h2>
+<script>document.cookie="PostOtpAuth=from-js; Path=/";</script>
+</body></html>`;
+        return htmlResponse(body);
+      }
+      if (url.includes("Login.aspx")) {
+        return responseWithSetCookies("<html><body>portal</body></html>", {
+          cookies: ["AfterLogin=1; Path=/"],
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
+    const session = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "111111",
+    });
+    const names = sessionCookieNames(session);
+    expect(names).toContain("PostOtpAuth");
+    expect(names).toContain("AfterLogin");
+  });
+
+  test("PostOtpAuth without a redirect still GETs Login.aspx for AfterLogin", async () => {
+    process.env.CLALIT_CONFIG_DIR = mkdtempSync(join(tmpdir(), "clalit-hops-"));
+    const requested: string[] = [];
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      requested.push(`${method} ${url}`);
+      if (url.includes("infootplogin.aspx") && method === "GET") return htmlResponse(loginHtml);
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "GET") return htmlResponse(otpContinueHtml);
+      if (url.includes("OTPSMSVerification.aspx") && method === "POST") {
+        return responseWithSetCookies("", {
+          status: 200,
+          contentType: "text/html",
+          cookies: ["PostOtpAuth=header-only; Path=/; HttpOnly"],
+        });
+      }
+      if (url.includes("Login.aspx")) {
+        return responseWithSetCookies("<html><body>portal</body></html>", {
+          cookies: ["AfterLogin=1; Path=/"],
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: withFailClosedComplete(fetchMock), minGapMs: 0 }));
+    const session = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "222222",
+    });
+    expect(requested.some((r) => r.includes("Login.aspx"))).toBe(true);
+    const names = sessionCookieNames(session);
+    expect(names).toContain("PostOtpAuth");
+    expect(names).toContain("AfterLogin");
   });
 });

@@ -1,11 +1,12 @@
 import type { SerializedCookieJar } from "tough-cookie";
 import { PATHS, PORTAL_ORIGIN } from "./constants.js";
-import { AuthenticationError } from "./errors.js";
+import { AuthenticationError, otpSessionIncompleteMessage } from "./errors.js";
 import type { ClalitSession } from "./session.js";
 import {
   extractBotDetectFields,
   extractCaptchaImageUrl,
   extractLoginEventTarget,
+  extractOtpEventTarget,
   extractSubmitFields,
   resolveBotDetectInstanceId,
   resolveInputName,
@@ -21,6 +22,7 @@ import {
   readBytes,
   readText,
   responseSetCookieNames,
+  setCookieHeaderName,
   type BrowserCookieSeed,
 } from "./transport.js";
 import {
@@ -39,8 +41,11 @@ import {
  *    fields: ctl00$cphBody$tbUserId, ctl00$cphBody$tbCaptchaLogin,
  *    LBD_VCID_… (BotDetect instance id), __EVENTTARGET=ctl00$cphBody$btnSendOTP,
  *    plus __VIEWSTATE…
- * 2. GET/POST /OnlineWeb/General/OTPSMSVerification.aspx — field txtClientOTP
- * 3. GET /OnlineWeb/General/Login.aspx (302 into portal)
+ * 2. GET/POST /OnlineWeb/General/OTPSMSVerification.aspx — field txtClientOTP,
+ *    __EVENTTARGET=ctl00$cphBody$btnContinue$lnkSubButton (LinkButton).
+ *    Empty event target redisplays the OTP form (HTTP 200, no PostOtpAuth).
+ * 3. GET /OnlineWeb/General/Login.aspx only after that postback (302 / Object moved).
+ *    A cold GET sets .ONLINEAUTH without PostOtpAuth/AfterLogin and labs stays logged out.
  *
  * Imperva sits in front. Datacenter / headless IPs get Error 16.
  * This package NEVER solves or bypasses CAPTCHA / Imperva. The human solves
@@ -177,7 +182,23 @@ function extractJsSetCookieLines(html: string): string[] {
     const maxAge = Number.isFinite(days) && days > 0 ? Math.floor(days * 86400) : 7_776_000;
     lines.push(`${name}=${value}; Path=/; Max-Age=${maxAge}`);
   }
+  const docRe = /document\.cookie\s*=\s*['"]([^'"]+)['"]/gi;
+  while ((m = docRe.exec(html))) {
+    const raw = m[1]?.trim();
+    if (!raw || !raw.includes("=")) continue;
+    lines.push(/(?:^|;)\s*path\s*=/i.test(raw) ? raw : `${raw}; Path=/`);
+  }
   return lines;
+}
+
+/** Cookies that mean the OTP postback actually established a portal session. */
+function isPortalAuthCookieName(name: string): boolean {
+  return /^(?:PostOtpAuth|AfterLogin|PortalAuth|ClalitPortal|ExtraPortal|\.ASPXAUTH)$/i.test(name);
+}
+
+/** True when the SMS code <input> is still on the page (postback did not leave OTP). */
+function otpEntryFormPresent(html: string): boolean {
+  return /<input\b[^>]*\b(?:name|id)\s*=\s*["'][^"']*txtClientOTP[^"']*["']/i.test(html);
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
@@ -304,16 +325,30 @@ export class ClalitAuth {
     const otpUrl = PORTAL_ORIGIN + PATHS.otpSms;
     const otpState = extractWebFormsState(otpHtml);
     const otpField = resolveInputName(otpHtml, "txtClientOTP") ?? "txtClientOTP";
+    // Live page posts via LinkButton, not a type=submit. Empty __EVENTTARGET
+    // redisplays OTPSMSVerification (200, no PostOtpAuth) and a later cold
+    // Login.aspx GET only sets .ONLINEAUTH.
+    const otpEventTarget = extractOtpEventTarget(otpHtml) ?? "";
+    const otpSubmitFields = otpEventTarget ? {} : extractSubmitFields(otpHtml);
     const code = await prompts.readOtp({
       message: "Enter the SMS one-time code from Clalit.",
     });
     if (!/^\d{4,8}$/.test(code)) throw new AuthenticationError("INVALID_OTP_FORMAT");
 
-    const otpBody = buildPostBackBody(otpState, { [otpField]: code });
+    const otpBody = buildPostBackBody(
+      otpState,
+      { [otpField]: code, ...otpSubmitFields },
+      otpEventTarget,
+      "",
+    );
     const verified = await this.transport.request(otpUrl, {
       method: "POST",
       allowLoginHtml: true,
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        referer: otpUrl,
+        origin: PORTAL_ORIGIN,
+      },
       body: otpBody,
     });
     // OTP POST + Login.aspx/portal hops set auth cookies via Set-Cookie (and JS
@@ -338,10 +373,16 @@ export class ClalitAuth {
   ): Promise<LoginHopDiagnostic[]> {
     const hops = await this.#followAuthRedirectChain(otpResponse, otpUrl, 8);
     const touchedLogin = hops.some((h) => /\/Login\.aspx\b/i.test(h.url));
+    // Do not cold-GET Login.aspx unless the OTP response already set portal auth
+    // cookies. Otherwise Login.aspx is the anonymous login page: it sets
+    // .ONLINEAUTH and labs still 302s (dump 2026-09-30T10:16:57Z).
     if (!touchedLogin) {
-      const loginUrl = PORTAL_ORIGIN + PATHS.login;
-      const hop = await this.transport.request(loginUrl, { allowLoginHtml: true });
-      hops.push(...(await this.#followAuthRedirectChain(hop, loginUrl, 8)));
+      const names = await this.transport.listCookieNames();
+      if (names.some(isPortalAuthCookieName)) {
+        const loginUrl = PORTAL_ORIGIN + PATHS.login;
+        const hop = await this.transport.request(loginUrl, { allowLoginHtml: true });
+        hops.push(...(await this.#followAuthRedirectChain(hop, loginUrl, 8)));
+      }
     }
     return hops;
   }
@@ -399,8 +440,17 @@ export class ClalitAuth {
       ...(labsProbe ? { labsProbe } : {}),
     });
 
-    if (!hasDefense || labsLoginRedirect) {
-      throw new AuthenticationError("OTP_SESSION_INCOMPLETE");
+    const incompleteReason = !hasDefense
+      ? "missing_portal_defense_cookies"
+      : labsLoginRedirect
+        ? "labs_login_redirect"
+        : undefined;
+    if (incompleteReason) {
+      throw new AuthenticationError(
+        "OTP_SESSION_INCOMPLETE",
+        undefined,
+        otpSessionIncompleteMessage(incompleteReason),
+      );
     }
   }
 
@@ -426,13 +476,15 @@ export class ClalitAuth {
         ct.includes("text/html") ||
         current.status === 200 ||
         isRedirectStatus(current.status);
+      let jsCookieLines: string[] = [];
       if (mightBeHtml) {
         try {
           html = await readText(current);
         } catch {
           html = "";
         }
-        for (const raw of extractJsSetCookieLines(html)) {
+        jsCookieLines = extractJsSetCookieLines(html);
+        for (const raw of jsCookieLines) {
           // Values never logged.
           await this.transport.setCookie(raw, currentUrl);
         }
@@ -448,12 +500,26 @@ export class ClalitAuth {
       });
 
       const locationHeader = current.headers.get("location") ?? undefined;
+      const htmlTarget = html ? extractHtmlRedirectTarget(html) : undefined;
+      const jsNames = jsCookieLines
+        .map(setCookieHeaderName)
+        .filter((n): n is string => Boolean(n));
+      const gotPortalAuth =
+        setCookieNames.some(isPortalAuthCookieName) || jsNames.some(isPortalAuthCookieName);
+      // Shared chrome on the still-visible OTP form calls redirectInfoToOnline(Login.aspx).
+      // Following that without PostOtpAuth lands on anonymous Login.aspx (.ONLINEAUTH only).
+      const ignoreEmbeddedLogin =
+        Boolean(html) &&
+        otpEntryFormPresent(html) &&
+        !gotPortalAuth &&
+        !isRedirectStatus(current.status);
+
       let nextRaw: string | undefined;
-      if (locationHeader && (isRedirectStatus(current.status) || Boolean(locationHeader))) {
+      if (locationHeader && (isRedirectStatus(current.status) || !ignoreEmbeddedLogin)) {
         nextRaw = locationHeader;
       }
-      if (!nextRaw && html) {
-        nextRaw = extractHtmlRedirectTarget(html);
+      if (!nextRaw && htmlTarget && !ignoreEmbeddedLogin) {
+        nextRaw = htmlTarget;
       }
       if (!nextRaw) break;
 

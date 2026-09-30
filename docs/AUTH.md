@@ -7,8 +7,8 @@ Host: `https://e-services.clalit.co.il`
 1. `POST /onlineweb/general/infootplogin.aspx`  
    Live fields (2026-09): `ctl00$cphBody$tbUserId`, `ctl00$cphBody$tbCaptchaLogin`, BotDetect `LBD_VCID_…` (hidden instance id; image query uses `t=`), `__EVENTTARGET=ctl00$cphBody$btnSendOTP` (LinkButton, not a type=submit), plus `__VIEWSTATE` / `__EVENTVALIDATION`. Older `BDC_VCID_*` + `btnLogin` submit shapes are still accepted when present.
 2. `GET/POST /OnlineWeb/General/OTPSMSVerification.aspx`  
-   Field `txtClientOTP`.
-3. `GET /OnlineWeb/General/Login.aspx` — 302 into the portal session.
+   Field `ctl00$cphBody$txtClientOTP`. Continue is the LinkButton `__EVENTTARGET=ctl00$cphBody$btnContinue$lnkSubButton` (not an empty postback). A correct postback returns `PostOtpAuth` (Set-Cookie or `document.cookie`) and a redirect / Object-moved to Login.
+3. `GET /OnlineWeb/General/Login.aspx` — only after that postback (often 302). Sets `AfterLogin`. A cold GET without `PostOtpAuth` only sets `.ONLINEAUTH` and labs still redirects to login.
 
 No JSON auth API was observed. This is ASP.NET WebForms end-to-end.
 

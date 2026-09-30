@@ -154,3 +154,32 @@ export function extractSubmitFields(pageHtml: string): Record<string, string> {
   }
   return out;
 }
+
+/**
+ * ASP.NET postback target for the SMS OTP continue control.
+ * Live Clalit (2026-09): LinkButton ctl00$cphBody$btnContinue$lnkSubButton
+ * (id ctl00_cphBody_btnContinue_lnkSubButton), not an empty __EVENTTARGET.
+ */
+export function extractOtpEventTarget(pageHtml: string): string | undefined {
+  const targets = [
+    ...pageHtml.matchAll(/WebForm_PostBackOptions\(\s*(?:&quot;|["'])([^"'&]+)(?:&quot;|["'])/gi),
+    ...pageHtml.matchAll(/__doPostBack\(\s*(?:&quot;|["'])([^"'&]+)(?:&quot;|["'])/gi),
+  ].map((m) => m[1]!);
+
+  const continueBtn = targets.find((t) => /btnContinue/i.test(t) && !/Voice/i.test(t));
+  if (continueBtn) return continueBtn;
+
+  const other = targets.find(
+    (t) =>
+      /(?:btnCheckOTP|btnVerifyOTP|btnOtp|btnConfirmOtp|lnkSubButton)$/i.test(t) &&
+      !/Voice/i.test(t) &&
+      !/btnSendOTP/i.test(t),
+  );
+  if (other) return other;
+
+  const idMatch = /\bid\s*=\s*["']([^"']*btnContinue(?:_lnkSubButton)?)["']/i.exec(pageHtml);
+  if (idMatch?.[1] && !/Voice/i.test(idMatch[1])) {
+    return idMatch[1].replace(/_/g, "$");
+  }
+  return undefined;
+}

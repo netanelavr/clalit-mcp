@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- OTP postback sends `__EVENTTARGET=ctl00$cphBody$btnContinue$lnkSubButton` (live LinkButton). An empty event target redisplayed OTPSMSVerification with no `PostOtpAuth`; a cold `Login.aspx` GET then only set `.ONLINEAUTH` and labs stayed on the login redirect. Follow `Login.aspx` only after portal auth cookies (or a real redirect). `labs_login_redirect` no longer blames missing Imperva cookies.
+
 - Login CAPTCHA: do not overwrite Libre BotDetect `LBD_VCID` with image query `t=` (cache-buster). Prefer the VCID already in the HTML.
 
 - Login CAPTCHA POST: use live ASP.NET UniqueIDs (`ctl00$cphBody$tbUserId` / `tbCaptchaLogin`), Libre BotDetect `LBD_VCID_*` (and image `t=`), and `__EVENTTARGET=ctl00$cphBody$btnSendOTP` instead of short names / inventing `btnLogin`. Fixes CAPTCHA_REJECTED after a correct human reading. On reject, write a redacted shape dump under `~/.config/clalit-mcp/captcha-rejected-*.json` (keys only).
