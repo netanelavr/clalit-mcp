@@ -79,7 +79,7 @@ export class ClalitTransport {
 
   /** Set a raw Set-Cookie line on the portal jar (e.g. mirror browser HasOTP). */
   async setCookie(raw: string, url = PORTAL_ORIGIN): Promise<void> {
-    await this.#jar.setCookie(raw, url);
+    await this.#jar.setCookie(raw, url, { loose: true });
   }
 
   async clearSession(): Promise<void> {
@@ -220,15 +220,17 @@ export class ClalitTransport {
 
   async #storeSetCookies(url: string, response: Response): Promise<void> {
     const anyHeaders = response.headers as Headers & { getSetCookie?: () => string[] };
-    const setCookies =
-      typeof anyHeaders.getSetCookie === "function"
-        ? anyHeaders.getSetCookie()
-        : response.headers.get("set-cookie")
-          ? [response.headers.get("set-cookie")!]
-          : [];
+    let setCookies: string[] =
+      typeof anyHeaders.getSetCookie === "function" ? anyHeaders.getSetCookie() : [];
+    // Fallback when getSetCookie is missing or empty but a single header exists.
+    if (setCookies.length === 0) {
+      const single = response.headers.get("set-cookie");
+      if (single) setCookies = [single];
+    }
     for (const raw of setCookies) {
       try {
-        await this.#jar.setCookie(raw, url);
+        // loose: accept portal quirks; never log cookie values.
+        await this.#jar.setCookie(raw, url, { loose: true });
       } catch {
         /* ignore malformed */
       }

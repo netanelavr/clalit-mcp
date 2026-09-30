@@ -20,6 +20,27 @@ function htmlResponse(body: string, init: ResponseInit = {}): Response {
   });
 }
 
+/** Response with multiple Set-Cookie lines (Headers.append — not a plain object). */
+function responseWithSetCookies(
+  body: string | null,
+  init: { status?: number; location?: string; cookies: string[]; contentType?: string },
+): Response {
+  const headers = new Headers();
+  if (init.contentType ?? body !== null) {
+    headers.set("content-type", init.contentType ?? "text/html; charset=utf-8");
+  }
+  if (init.location) headers.set("location", init.location);
+  for (const raw of init.cookies) {
+    headers.append("set-cookie", raw);
+  }
+  return new Response(body, { status: init.status ?? 200, headers });
+}
+
+function sessionCookieNames(session: { cookies: { cookies?: Array<{ key?: string }> } }): string[] {
+  const list = session.cookies.cookies ?? [];
+  return list.map((c) => c.key).filter((k): k is string => Boolean(k));
+}
+
 const prevConfigDir = process.env.CLALIT_CONFIG_DIR;
 
 afterEach(() => {
@@ -412,6 +433,125 @@ describe("loginInteractive after CAPTCHA", () => {
     });
     expect(calls).toContain(`GET ${PATHS.otpSms}`);
     expect(PORTAL_ORIGIN).toContain("clalit");
+  });
+});
+
+describe("OTP Set-Cookie merge into exportSession", () => {
+  test("fixture Set-Cookie on OTP POST + Login.aspx hops appear in exported session", async () => {
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("infootplogin.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(loginHtml);
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && init?.method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(otpHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && init?.method === "POST") {
+        // Live bug: auth cookies arrive on OTP POST Set-Cookie + redirect to Login.aspx
+        return responseWithSetCookies(null, {
+          status: 302,
+          location: PATHS.login,
+          cookies: [
+            "ASP.NET_SessionId=session-from-otp; Path=/; HttpOnly; Secure; SameSite=Lax",
+            "languageCode=he; Path=/; HttpOnly; Secure; SameSite=Lax",
+            "HasOTP=-otp-sms; Path=/; Max-Age=7776000",
+            "PortalAuth=portal-auth-token; Path=/; HttpOnly; Secure",
+          ],
+        });
+      }
+      if (url.includes("Login.aspx")) {
+        return responseWithSetCookies("<html><body>portal home</body></html>", {
+          status: 302,
+          location: "/OnlineWeb/Services/Home/Default.aspx",
+          cookies: [
+            "ClalitPortal=portal-hop-cookie; Path=/; HttpOnly; Secure",
+            "TS21fa3c30027=ts-token; Path=/",
+          ],
+        });
+      }
+      if (url.includes("Default.aspx")) {
+        return responseWithSetCookies("<html><body>signed in</body></html>", {
+          status: 200,
+          cookies: ["ExtraPortal=extra; Path=/"],
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const session = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "123456",
+    });
+
+    const names = sessionCookieNames(session);
+    expect(names.length).toBeGreaterThan(2);
+    expect(names).toContain("HasOTP");
+    expect(names).toContain("PortalAuth");
+    expect(names).toContain("ClalitPortal");
+    expect(names).toContain("TS21fa3c30027");
+    expect(names).toContain("ExtraPortal");
+    expect(names).toContain("ASP.NET_SessionId");
+    // Never assert or print cookie values — names only.
+  });
+
+  test("OTP 200 Object-moved + Set-Cookie follows href and keeps cookies", async () => {
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("infootplogin.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(loginHtml);
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("infootplogin.aspx") && init?.method === "POST") {
+        return new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(otpHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && init?.method === "POST") {
+        const body = `<html><head><title>Object moved</title></head><body>
+<h2>Object moved to <a href="${PATHS.login}">here</a>.</h2></body></html>`;
+        return responseWithSetCookies(body, {
+          status: 200,
+          cookies: [
+            "ASP.NET_SessionId=otp-sess; Path=/",
+            "languageCode=he; Path=/",
+            "PostOtpAuth=from-object-moved; Path=/; HttpOnly",
+          ],
+        });
+      }
+      if (url.includes("Login.aspx")) {
+        return responseWithSetCookies("<html><body>portal</body></html>", {
+          status: 200,
+          cookies: ["AfterLogin=1; Path=/"],
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const session = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "999999",
+    });
+    const names = sessionCookieNames(session);
+    expect(names.length).toBeGreaterThan(2);
+    expect(names).toContain("PostOtpAuth");
+    expect(names).toContain("AfterLogin");
   });
 });
 

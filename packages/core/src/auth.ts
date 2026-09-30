@@ -100,6 +100,61 @@ function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
 
+/** Resolve Location / href against the current portal request URL. */
+function resolvePortalUrl(target: string, baseUrl: string): string {
+  const trimmed = target.trim();
+  if (!trimmed) return baseUrl;
+  try {
+    return new URL(trimmed, baseUrl).href;
+  } catch {
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+    return PORTAL_ORIGIN + (trimmed.startsWith("/") ? trimmed : `/${trimmed}`);
+  }
+}
+
+/**
+ * Next hop from ASP.NET Object-moved body or Clalit JS redirects.
+ * Prefer caller Location header when present.
+ */
+function extractHtmlRedirectTarget(html: string): string | undefined {
+  if (/object\s+moved/i.test(html)) {
+    const href = html.match(/href\s*=\s*["']([^"']+)["']/i)?.[1];
+    if (href) return href;
+  }
+  const info = html.match(/redirectInfoToOnline\s*\(\s*['"]([^'"]+)['"]/i);
+  if (info?.[1]) return info[1];
+  const loc = html.match(/(?:window\.)?location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/i);
+  if (loc?.[1]) return loc[1];
+  const meta =
+    html.match(
+      /http-equiv\s*=\s*['"]?refresh['"]?[^>]*content\s*=\s*['"]?\d+\s*;\s*url=([^"'\s>]+)/i,
+    ) ??
+    html.match(
+      /content\s*=\s*['"]?\d+\s*;\s*url=([^"'\s>]+)[^>]*http-equiv\s*=\s*['"]?refresh/i,
+    );
+  if (meta?.[1]) return meta[1];
+  return undefined;
+}
+
+/**
+ * Mirror browser document setCookie('name', 'value', days) into raw Set-Cookie lines.
+ * Never log the values.
+ */
+function extractJsSetCookieLines(html: string): string[] {
+  const lines: string[] = [];
+  const re =
+    /setCookie\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]\s*(?:,\s*(\d+))?/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const name = m[1];
+    const value = m[2] ?? "";
+    const days = m[3] !== undefined ? Number(m[3]) : 90;
+    const maxAge = Number.isFinite(days) && days > 0 ? Math.floor(days * 86400) : 7_776_000;
+    lines.push(`${name}=${value}; Path=/; Max-Age=${maxAge}`);
+  }
+  return lines;
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(onTimeout()), ms);
@@ -229,37 +284,84 @@ export class ClalitAuth {
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: otpBody,
     });
-    // Follow manual redirects toward portal home / labs
-    let location = verified.headers.get("location");
-    let hops = 0;
-    let lastHtml = "";
-    while (location && hops < 8) {
-      hops += 1;
-      const next = location.startsWith("http") ? location : PORTAL_ORIGIN + location;
-      const hop = await this.transport.request(next, { allowLoginHtml: true });
-      location = hop.headers.get("location");
-      if (hop.status === 200 && !location) {
-        lastHtml = await readText(hop);
-        break;
-      }
-    }
-    // OTP sometimes returns 200 with no Location. Ensure Login.aspx → portal so
-    // session.json cookies can access Labs (not just the OTP gate).
-    const stillAtAuthGate =
-      hops === 0 || looksLikeOtpPage(lastHtml) || looksLikeCaptchaLoginPage(lastHtml);
-    if (stillAtAuthGate) {
-      let hop = await this.transport.request(PORTAL_ORIGIN + PATHS.login, { allowLoginHtml: true });
-      location = hop.headers.get("location");
-      for (let i = 0; i < 8 && location; i += 1) {
-        const next = location.startsWith("http") ? location : PORTAL_ORIGIN + location;
-        hop = await this.transport.request(next, { allowLoginHtml: true });
-        location = hop.headers.get("location");
-        if (hop.status === 200 && !location) break;
-      }
-    }
+    // OTP POST + Login.aspx/portal hops set auth cookies via Set-Cookie (and JS
+    // setCookie mirrors). Follow the full chain and merge into the jar before export.
+    await this.#completePortalSessionAfterOtp(verified, otpUrl);
 
     this.transport.markAuthenticated();
     return this.transport.exportSession();
+  }
+
+  /**
+   * After OTPSMSVerification succeeds, follow Location / Object-moved / JS redirects,
+   * mirror setCookie(...) into the jar, and ensure Login.aspx → portal runs so
+   * exportSession persists portal auth cookies (not only ASP.NET_SessionId).
+   */
+  async #completePortalSessionAfterOtp(otpResponse: Response, otpUrl: string): Promise<void> {
+    const visited = await this.#followAuthRedirectChain(otpResponse, otpUrl, 8);
+    const touchedLogin = visited.some((u) => /\/Login\.aspx\b/i.test(u));
+    if (!touchedLogin) {
+      const loginUrl = PORTAL_ORIGIN + PATHS.login;
+      const hop = await this.transport.request(loginUrl, { allowLoginHtml: true });
+      await this.#followAuthRedirectChain(hop, loginUrl, 8);
+    }
+  }
+
+  /**
+   * Follow redirects while merging every hop's Set-Cookie (via transport) and
+   * mirroring HTML setCookie() calls. Returns absolute URLs visited (including start).
+   */
+  async #followAuthRedirectChain(
+    initial: Response,
+    initialUrl: string,
+    maxHops: number,
+  ): Promise<string[]> {
+    const visited: string[] = [initialUrl];
+    let current = initial;
+    let currentUrl = initialUrl;
+
+    for (let hop = 0; hop < maxHops; hop += 1) {
+      let html = "";
+      const ct = current.headers.get("content-type") ?? "";
+      const mightBeHtml =
+        ct.includes("text/html") ||
+        current.status === 200 ||
+        isRedirectStatus(current.status);
+      if (mightBeHtml) {
+        try {
+          html = await readText(current);
+        } catch {
+          html = "";
+        }
+        for (const raw of extractJsSetCookieLines(html)) {
+          // Values never logged.
+          await this.transport.setCookie(raw, currentUrl);
+        }
+      }
+
+      const locationHeader = current.headers.get("location") ?? undefined;
+      let nextRaw: string | undefined;
+      if (locationHeader && (isRedirectStatus(current.status) || Boolean(locationHeader))) {
+        nextRaw = locationHeader;
+      }
+      if (!nextRaw && html) {
+        nextRaw = extractHtmlRedirectTarget(html);
+      }
+      if (!nextRaw) break;
+
+      const nextUrl = resolvePortalUrl(nextRaw, currentUrl);
+      if (visited.includes(nextUrl) && hop > 0) break;
+      try {
+        // Origin allowlist enforced inside transport.request.
+        current = await this.transport.request(nextUrl, { allowLoginHtml: true });
+      } catch {
+        break;
+      }
+      currentUrl = nextUrl;
+      visited.push(nextUrl);
+    }
+
+    return visited;
   }
 
   /**
