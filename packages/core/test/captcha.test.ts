@@ -62,5 +62,12 @@ describe("BotDetect form fields", () => {
         "https://e-services.clalit.co.il/BotDetectCaptcha.ashx?get=image&c=captchaLogin&d=abc",
       ),
     ).toBe("abc");
+    // t= must not win over HTML VCID (Libre BotDetect cache-buster).
+    expect(
+      resolveBotDetectInstanceId(
+        html,
+        "https://e-services.clalit.co.il/BotDetectCaptcha.ashx?get=image&c=captchaLogin&t=NOT_THE_VCID",
+      ),
+    ).toBe("abc");
   });
 });

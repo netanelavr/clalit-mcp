@@ -160,7 +160,10 @@ export class ClalitAuth {
     const instanceId = resolveBotDetectInstanceId(html, imageFinalUrl);
     if (instanceId) {
       for (const name of Object.keys(botDetectFields)) {
-        if (/VCID/i.test(name)) botDetectFields[name] = instanceId;
+        // Never overwrite a server-rendered VCID with a guess from the image URL.
+        if (/VCID/i.test(name) && !botDetectFields[name]?.trim()) {
+          botDetectFields[name] = instanceId;
+        }
       }
     }
 

@@ -72,27 +72,27 @@ export function extractBotDetectFields(pageHtml: string): Record<string, string>
 }
 
 /**
- * Instance id for BotDetect image URL / form round-trip.
- * Prefer image query `d`, `t`, or `i`; else a non-empty BDC_/LBD_ VCID value.
- * Live Clalit uses `t=` (not `d=`).
+ * Instance id for BotDetect form round-trip.
+ * Prefer a non-empty BDC_/LBD_ VCID already in the HTML. Only fall back to image
+ * query `d` or `i` — never `t=`, which Libre BotDetect uses as a cache-buster and
+ * must not overwrite LBD_VCID (that caused live CAPTCHA_REJECTED after correct reads).
  */
 export function resolveBotDetectInstanceId(
   pageHtml: string,
   captchaImageUrl?: string,
 ): string | undefined {
+  const fields = extractBotDetectFields(pageHtml);
+  for (const [name, value] of Object.entries(fields)) {
+    if (/VCID/i.test(name) && value.trim()) return value.trim();
+  }
   for (const url of [captchaImageUrl].filter(Boolean) as string[]) {
     try {
       const u = new URL(url);
-      const id =
-        u.searchParams.get("d") ?? u.searchParams.get("t") ?? u.searchParams.get("i");
+      const id = u.searchParams.get("d") ?? u.searchParams.get("i");
       if (id && id.trim()) return id.trim();
     } catch {
       /* ignore */
     }
-  }
-  const fields = extractBotDetectFields(pageHtml);
-  for (const [name, value] of Object.entries(fields)) {
-    if (/VCID/i.test(name) && value.trim()) return value.trim();
   }
   return undefined;
 }
