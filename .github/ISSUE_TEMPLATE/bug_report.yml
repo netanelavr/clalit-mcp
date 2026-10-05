@@ -1,0 +1,40 @@
+name: Bug report
+description: Something failed with the CLI or MCP (no PHI in the form)
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste** Israeli ID numbers, SMS codes, cookies, session files, captcha images, lab PDFs, HAR files, or clinical values.
+        Prefer a PR with a sanitized HTML fixture when parsers break.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Command you ran (redact paths if needed), exit code, error code from stderr
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      placeholder: "node -v output"
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network context
+      options:
+        - Residential / home ISP
+        - Mobile hotspot
+        - VPN / datacenter / cloud VM
+        - Unknown
+    validations:
+      required: true
