@@ -6,6 +6,8 @@
 
 > Unofficial. Not affiliated with Clalit. Not a substitute for the official portal or clinical advice.
 
+![Ask Claude about your own Clalit records (read-only)](docs/assets/chat-demo.png)
+
 ## Getting started with an AI assistant
 
 Copy and paste this to your agent:
@@ -78,6 +80,8 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS). 
 ```
 
 Find your node path with `which node`. Quit Claude fully (Cmd+Q) and reopen.
+
+![Claude Desktop: seven Clalit tools](docs/assets/connectors.png)
 
 ### Other MCP clients (Cursor, Claude Code, …)
 
