@@ -83,3 +83,71 @@ describe("ClalitReaders against fixtures", () => {
     expect(detailHits).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("ClalitReaders prescriptions + lab-orders fixtures", () => {
+  test("listPrescriptions + getPrescriptionIssueStatus + listLabOrders + getLabOrder", async () => {
+    const rxList = readFileSync(join(fixtures, "prescriptions-list.html"), "utf8");
+    const loList = readFileSync(join(fixtures, "lab-orders-list.html"), "utf8");
+    const loDetail = readFileSync(join(fixtures, "lab-order-detail.html"), "utf8");
+    const issueJson = JSON.stringify(
+      JSON.stringify({ statusCode_0: "0", statusDesc_0: "Example status only" }),
+    );
+
+    const transport = {
+      assertNotIdleExpired(): void {},
+      async request(input: string | URL, init?: RequestInit): Promise<Response> {
+        const url = String(input);
+        if (url.includes("IssueDrugsByPatientReceiptId")) {
+          expect(init?.method).toBe("POST");
+          const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, string>;
+          expect(body.prescriptionNo).toBe("opaqueRx1");
+          expect(body.medicationID).toBe("opaqueMed1");
+          return new Response(JSON.parse(issueJson) as string, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("PatientPrescriptionsex.aspx")) {
+          return new Response(rxList, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        }
+        if (url.includes("LabOrderDetails.aspx")) {
+          return new Response(loDetail, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        }
+        if (url.includes("LabOrderList.aspx")) {
+          return new Response(loList, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        }
+        return new Response("missing", { status: 404 });
+      },
+    } as unknown as ClalitTransport;
+
+    const readers = new ClalitReaders(transport);
+    const rx = await readers.listPrescriptions();
+    expect(rx).toHaveLength(2);
+    expect(rx[0]!.medicines[0]!.medicineId).toBe("opaqueMed1");
+
+    const status = await readers.getPrescriptionIssueStatus({
+      prescriptionNo: "opaqueRx1",
+      medicationID: "opaqueMed1",
+      medicationFormName: "TAB",
+      medicationStartDate: "01/01/2025xx",
+      sectionId: "42",
+    });
+    expect(status).toEqual({ statusCode: "0", statusDesc: "Example status only" });
+
+    const orders = await readers.listLabOrders();
+    expect(orders).toHaveLength(2);
+    expect(orders[0]!.refToken).toBeTruthy();
+
+    const detail = await readers.getLabOrder(orders[0]!.refToken!);
+    expect(detail.items[0]!.testName).toContain("ספירת דם");
+  });
+});

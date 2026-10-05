@@ -1,4 +1,4 @@
-import { connect, decodeLabRef } from "@clalit/core";
+import { connect, decodeLabOrderRef, decodeLabRef } from "@clalit/core";
 import { writeFile } from "node:fs/promises";
 import { help } from "./commands.js";
 import { runLogin } from "./login.js";
@@ -120,6 +120,109 @@ export async function runCli(args: string[]): Promise<number> {
         return 0;
       } catch (err) {
         console.error(err instanceof Error ? err.message : "lab-document failed");
+        return 1;
+      }
+    }
+    case "prescriptions": {
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const data = await client.listPrescriptions({
+          fromDate: flag(rest, "from"),
+          toDate: flag(rest, "to"),
+          includeExpired: has(rest, "include-expired"),
+        });
+        if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
+        else {
+          for (const row of data) {
+            const meds = row.medicines
+              .map((m) => m.medicineName ?? m.medicineId)
+              .join(", ");
+            console.log(
+              `${row.prescriptionDisplayNo ?? row.prescriptionNo}\t${row.prescriberName ?? ""}\t${meds}`,
+            );
+          }
+        }
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "prescriptions failed");
+        return 1;
+      }
+    }
+    case "prescription-status": {
+      const prescriptionNo = flag(rest, "prescription");
+      const medicationID = flag(rest, "medication");
+      const medicationFormName = flag(rest, "form");
+      const medicationStartDate = flag(rest, "start");
+      const sectionId = flag(rest, "section");
+      if (!prescriptionNo || !medicationID || !medicationFormName || !medicationStartDate || !sectionId) {
+        console.error(
+          "Usage: clalit-mcp prescription-status --prescription NO --medication ID --form NAME --start DATE --section ID",
+        );
+        return 2;
+      }
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const data = await client.getPrescriptionIssueStatus({
+          prescriptionNo,
+          medicationID,
+          medicationFormName,
+          medicationStartDate,
+          sectionId,
+        });
+        if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
+        else console.log(`${data.statusCode}\t${data.statusDesc}`);
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "prescription-status failed");
+        return 1;
+      }
+    }
+    case "lab-orders": {
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const data = await client.listLabOrders();
+        if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
+        else {
+          for (const row of data) {
+            const token = row.refToken ?? "";
+            console.log(
+              `${row.issuanceDate ?? ""}\t${row.referer ?? ""}\t${row.validTo ?? ""}\t${row.section ?? ""}\t${token}`,
+            );
+          }
+        }
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "lab-orders failed");
+        return 1;
+      }
+    }
+    case "lab-order": {
+      const ref = flag(rest, "ref");
+      if (!ref) {
+        console.error("Usage: clalit-mcp lab-order --ref TOKEN");
+        return 2;
+      }
+      decodeLabOrderRef(ref);
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const data = await client.getLabOrder(ref);
+        if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
+        else {
+          if (data.title) console.log(data.title);
+          if (data.validFrom || data.validTo) {
+            console.log(`valid: ${data.validFrom ?? "?"} → ${data.validTo ?? "?"}`);
+          }
+          for (const item of data.items) {
+            console.log([item.section ?? "", item.testName ?? ""].filter(Boolean).join("\t"));
+          }
+        }
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "lab-order failed");
         return 1;
       }
     }
