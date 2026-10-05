@@ -1,3 +1,4 @@
+export * from "./version.js";
 export * from "./captcha.js";
 export * from "./login-diagnostics.js";
 export * from "./auth.js";

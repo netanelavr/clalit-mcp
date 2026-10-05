@@ -4,6 +4,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { PACKAGE_VERSION } from "@clalit/core";
 import {
   getLabDocumentTool,
   getLabOrderTool,
@@ -32,7 +33,7 @@ const INSTRUCTIONS = [
 
 export async function startStdioServer(): Promise<void> {
   const server = new Server(
-    { name: "clalit-mcp", version: "0.1.0" },
+    { name: "clalit-mcp", version: PACKAGE_VERSION },
     { instructions: INSTRUCTIONS, capabilities: { tools: {} } },
   );
 

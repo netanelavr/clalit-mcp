@@ -1,4 +1,4 @@
-/** Observed Clalit e-services origin (Gate 2 HAR). */
+/** Observed Clalit e-services origin (redacted endpoint map). */
 export const PORTAL_ORIGIN = "https://e-services.clalit.co.il";
 
 /** Hosts this client may contact. Never widen without evidence. */

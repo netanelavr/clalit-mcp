@@ -50,7 +50,7 @@ import {
 /**
  * Login is interactive on the member's own machine (residential IP).
  *
- * Observed flow (Gate 2 HAR + 2026-09 live HTML — ASP.NET WebForms, not a JSON API):
+ * Observed flow (redacted endpoint map + 2026-09 live HTML — ASP.NET WebForms, not a JSON API):
  * 1. GET/POST /onlineweb/general/infootplogin.aspx
  *    fields: ctl00$cphBody$tbUserId, ctl00$cphBody$tbCaptchaLogin,
  *    LBD_VCID_… (BotDetect instance id), __EVENTTARGET=ctl00$cphBody$btnSendOTP,
@@ -245,7 +245,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error)
 
 /**
  * Interactive login. Designed for Mac/local residential use.
- * On this agent box (Imperva Error 16) the first GET will throw BOT_CHALLENGE.
+ * On datacenter or cloud hosts (Imperva Error 16) the first GET will throw BOT_CHALLENGE.
  */
 export class ClalitAuth {
   readonly transport: ClalitTransport;

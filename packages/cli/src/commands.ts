@@ -1,4 +1,6 @@
-export const VERSION = "0.1.0";
+import { PACKAGE_VERSION } from "@clalit/core";
+
+export const VERSION = PACKAGE_VERSION;
 
 export interface Command {
   usage: string;
