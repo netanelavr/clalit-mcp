@@ -193,7 +193,7 @@ describe("ClalitReaders listLabs pagination", () => {
     const bodies: string[] = [];
     const transport = {
       assertNotIdleExpired(): void {},
-      async request(input: string | URL, init?: RequestInit): Promise<Response> {
+      async request(_input: string | URL, init?: RequestInit): Promise<Response> {
         const method = (init?.method ?? "GET").toUpperCase();
         if (method === "GET") {
           return new Response(
@@ -246,7 +246,7 @@ describe("ClalitReaders listLabs pagination", () => {
     const targets: string[] = [];
     const transport = {
       assertNotIdleExpired(): void {},
-      async request(input: string | URL, init?: RequestInit): Promise<Response> {
+      async request(_input: string | URL, init?: RequestInit): Promise<Response> {
         const method = (init?.method ?? "GET").toUpperCase();
         if (method === "GET") {
           return new Response(
@@ -347,7 +347,7 @@ describe("ClalitReaders listPrescriptions pagination", () => {
     const bodies: string[] = [];
     const transport = {
       assertNotIdleExpired(): void {},
-      async request(input: string | URL, init?: RequestInit): Promise<Response> {
+      async request(_input: string | URL, init?: RequestInit): Promise<Response> {
         const method = (init?.method ?? "GET").toUpperCase();
         if (method === "GET") {
           return new Response(
