@@ -14,6 +14,8 @@ export const PATHS = {
   login: "/OnlineWeb/General/Login.aspx",
   labsList: "/OnlineWeb/Services/Labs/LabsTestList.aspx",
   labDetail: "/OnlineWeb/Services/Labs/LabTestDetails.aspx",
+  prescriptionsList: "/OnlineWeb/Services/Medicine/PatientPrescriptionsex.aspx",
+  prescriptionIssueStatus: "/onlineweb/api/PatientPrescriptions/IssueDrugsByPatientReceiptId",
   refreshSession: "/OnlineWeb/ServicesForAll/RefreshSession.aspx",
 } as const;
 
@@ -22,6 +24,15 @@ export const LABS_LIST_FIELDS = {
   fromDate: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtFromDate",
   toDate: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtToDate",
   grid: "LabsHistory1$gvTestListInDateRange",
+} as const;
+
+
+/** WebForms field names observed for prescriptions list date/filter. */
+export const PRESCRIPTIONS_LIST_FIELDS = {
+  fromDate: "ctl00$ctl00$cphBody$bodyContent$dateRange$txtFromDate",
+  toDate: "ctl00$ctl00$cphBody$bodyContent$dateRange$txtToDate",
+  includeExpired: "ctl00$ctl00$cphBody$bodyContent$chkIncludeExpiredPrescriptions",
+  sectionId: "ctl00$ctl00$cphBody$bodyContent$hdnSectionID",
 } as const;
 
 /** Lab detail opaque query param names (values from list links only). */

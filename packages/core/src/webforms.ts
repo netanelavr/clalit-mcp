@@ -135,3 +135,41 @@ export function looksLikeLabsListChrome(html: string): boolean {
   // LabsTestList in path text alone is not enough (ReturnUrl false positive).
   return /LabsTestList/i.test(html) && /__VIEWSTATE/i.test(html) && !/ReturnUrl=/i.test(html);
 }
+
+/**
+ * Real PatientPrescriptionsex chrome for an empty prescriptions page.
+ * Never treat ASP.NET "Object moved" + ReturnUrl=...PatientPrescriptions as chrome.
+ */
+export function looksLikePrescriptionsListChrome(html: string): boolean {
+  if (/object\s+moved/i.test(html)) return false;
+  if (looksLikeLoginPage(html)) return false;
+  if (
+    /__VIEWSTATE/i.test(html) &&
+    /PatientPrescriptions|rptPatientPrescriptions|מרשמים|dateRange\$txtFromDate|hdnSectionID/i.test(
+      html,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /PatientPrescriptionsex\.aspx/i.test(html) &&
+    /__VIEWSTATE/i.test(html) &&
+    !/ReturnUrl=/i.test(html)
+  );
+}
+
+/**
+ * Real LabOrderList chrome for an empty lab-orders page.
+ * Prefer row/lnkOrderDetails presence over NoLabOrdersFound alone when parsing.
+ */
+export function looksLikeLabOrdersListChrome(html: string): boolean {
+  if (/object\s+moved/i.test(html)) return false;
+  if (looksLikeLoginPage(html)) return false;
+  if (
+    /__VIEWSTATE/i.test(html) &&
+    /LabOrderList|gvLabOrdersList|NoLabOrdersFound|הפניות לבדיקות מעבדה|divLabOrders/i.test(html)
+  ) {
+    return true;
+  }
+  return /LabOrderList\.aspx/i.test(html) && /__VIEWSTATE/i.test(html) && !/ReturnUrl=/i.test(html);
+}
