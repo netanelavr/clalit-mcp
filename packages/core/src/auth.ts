@@ -12,11 +12,23 @@ import {
   resolveInputName,
 } from "./captcha.js";
 import {
+  classifyLoginPageKind,
+  contentTypeOnly,
+  explainOtpFailure,
+  isPortalAuthCookieName,
+  otpEntryInputPresent,
+  summarizeOtpPostResponse,
+  summarizeOtpSourcePage,
   summarizePostBodyKeys,
+  urlPathOnly,
   writeCaptchaRejectedDump,
   writeLoginHopDump,
   writeOtpRedisplayDump,
+  type LabsProbeDiagnostic,
   type LoginHopDiagnostic,
+  type LoginProgressListener,
+  type LoginProgressStage,
+  type OtpPostDiagnostic,
 } from "./login-diagnostics.js";
 import {
   ClalitTransport,
@@ -99,6 +111,17 @@ export interface LoginOptions {
    * (Imperva visid_incap_, incap_ses_, TS, _cls_). Values never logged.
    */
   seedCookies?: BrowserCookieSeed[];
+  /**
+   * One-line progress per stage (statuses, paths, page kinds, cookie *names*).
+   * Never receives OTP, ID, cookie values, or VIEWSTATE.
+   */
+  onProgress?: LoginProgressListener;
+}
+
+/** What #advanceToOtpPage hands back: OTP page HTML and the URL it came from. */
+interface OtpPageResult {
+  html: string;
+  url: string;
 }
 
 function looksLikeOtpPage(html: string): boolean {
@@ -194,36 +217,11 @@ function extractJsSetCookieLines(html: string): string[] {
   return lines;
 }
 
-/** Cookies that mean the OTP postback actually established a portal session. */
-function isPortalAuthCookieName(name: string): boolean {
-  return /^(?:PostOtpAuth|AfterLogin|PortalAuth|ClalitPortal|ExtraPortal|\.ASPXAUTH)$/i.test(name);
-}
-
 /** True when the SMS code <input> is still on the page (postback did not leave OTP). */
-function otpEntryFormPresent(html: string): boolean {
-  return /<input\b[^>]*\b(?:name|id)\s*=\s*["'][^"']*txtClientOTP[^"']*["']/i.test(html);
-}
+const otpEntryFormPresent = otpEntryInputPresent;
 
-/** Best-effort: visible validation / error chrome on a redisplayed OTP page (no values). */
-function otpValidationMessagePresent(html: string): boolean {
-  if (/validation.*?error|error.*?validation|Validator|ValidationSummary/i.test(html) &&
-      /(?:color\s*:\s*red|class\s*=\s*["'][^"']*error|סיסמה|שגוי|לא תקין|קוד|otp)/i.test(html)) {
-    return true;
-  }
-  // Visible Red validator spanning OTP-ish copy (display not none).
-  if (/style\s*=\s*["'][^"']*color\s*:\s*red[^"']*["'][^>]*>[^<]*(?:קוד|OTP|סיסמה|שגוי|לא)/i.test(html)) {
-    return true;
-  }
-  if (/id\s*=\s*["'][^"']*(?:cv|lbl).*?(?:OTP|Code|Error)[^"']*["'][^>]*(?:style\s*=\s*["'][^"']*display\s*:\s*none)?/i.test(html)) {
-    // Only count when not display:none
-    const re = /<(?:span|div|label)\b[^>]*\bid\s*=\s*["'][^"']*(?:cv|lbl)[^"']*(?:OTP|Code|Error)[^"']*["'][^>]*>/gi;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(html)) !== null) {
-      const tag = m[0]!;
-      if (!/display\s*:\s*none/i.test(tag)) return true;
-    }
-  }
-  return false;
+function yn(v: boolean): "y" | "n" {
+  return v ? "y" : "n";
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
@@ -248,9 +246,19 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error)
  */
 export class ClalitAuth {
   readonly transport: ClalitTransport;
+  #onProgress: LoginProgressListener | undefined;
 
   constructor(transport = new ClalitTransport()) {
     this.transport = transport;
+  }
+
+  /** Emit a redacted progress line; listener errors never break login. */
+  #progress(stage: LoginProgressStage, message: string): void {
+    try {
+      this.#onProgress?.({ stage, message });
+    } catch {
+      /* diagnostic only */
+    }
   }
 
   /**
@@ -264,6 +272,7 @@ export class ClalitAuth {
   ): Promise<ClalitSession> {
     if (!/^\d{1,9}$/.test(idNumber)) throw new AuthenticationError("INVALID_ID_FORMAT");
 
+    this.#onProgress = options.onProgress;
     await this.transport.clearSession();
     if (options.seedCookies?.length) {
       await this.transport.importBrowserCookies(options.seedCookies);
@@ -272,6 +281,7 @@ export class ClalitAuth {
     const page = await this.transport.request(loginUrl, { allowLoginHtml: true });
     const html = await readText(page);
     if (looksLikeBotChallenge(html, page.status)) {
+      this.#progress("login_page", `GET ${PATHS.loginFoot} → ${page.status} bot challenge (Imperva)`);
       throw new AuthenticationError("BOT_CHALLENGE", page.status);
     }
 
@@ -320,6 +330,10 @@ export class ClalitAuth {
       }
     }
 
+    this.#progress(
+      "login_page",
+      `GET ${PATHS.loginFoot} → ${page.status}; captcha image ${captchaImage ? "loaded" : captchaImageUrl ? "url found, fetch failed" : "not found"}; waiting for CAPTCHA`,
+    );
     const captcha = await prompts.solveCaptcha({
       pageHtml: html,
       captchaFieldName: captchaField,
@@ -341,25 +355,47 @@ export class ClalitAuth {
     );
 
     // Cap the entire captcha-submit → OTP-page path so UI never waits forever.
-    const otpHtml = await withTimeout(
+    this.#progress("captcha_submit", `POST ${PATHS.loginFoot} (CAPTCHA answer + ID; values not logged)`);
+    const captchaSubmittedAt = Date.now();
+    const otpPage = await withTimeout(
       this.#advanceToOtpPage(loginUrl, body, html),
       CAPTCHA_CHECK_BUDGET_MS,
       () => new AuthenticationError("CAPTCHA_CHECK_TIMEOUT"),
     );
+    const otpHtml = otpPage.html;
+    const otpPageReadyAt = Date.now();
+    const captchaToOtpPageMs = otpPageReadyAt - captchaSubmittedAt;
 
     const otpUrl = PORTAL_ORIGIN + PATHS.otpSms;
     const otpState = extractWebFormsState(otpHtml);
-    const otpField = resolveInputName(otpHtml, "txtClientOTP") ?? "txtClientOTP";
+    const resolvedOtpField = resolveInputName(otpHtml, "txtClientOTP");
+    const otpField = resolvedOtpField ?? "txtClientOTP";
     // Live page posts via LinkButton, not a type=submit. Empty __EVENTTARGET
     // redisplays OTPSMSVerification (200, no PostOtpAuth) and a later cold
     // Login.aspx GET only sets .ONLINEAUTH.
-    const otpEventTarget =
-      extractOtpEventTarget(otpHtml) ?? "ctl00$cphBody$btnContinue$lnkSubButton";
+    const extractedOtpEventTarget = extractOtpEventTarget(otpHtml);
+    const otpEventTarget = extractedOtpEventTarget ?? "ctl00$cphBody$btnContinue$lnkSubButton";
     const otpSubmitFields = otpEventTarget ? {} : extractSubmitFields(otpHtml);
+    const otpSource = summarizeOtpSourcePage({
+      html: otpHtml,
+      url: otpPage.url,
+      postUrl: otpUrl,
+      eventTargetSource: extractedOtpEventTarget ? "extracted" : "fallback",
+      ...(resolvedOtpField ? { resolvedOtpField } : {}),
+    });
+    this.#progress(
+      "captcha_ok",
+      `CAPTCHA accepted → OTP page ${otpSource.path ?? "?"} (${captchaToOtpPageMs} ms)`,
+    );
+    this.#progress(
+      "otp_page",
+      `kind=${otpSource.pageKind} txtClientOTP=${yn(otpSource.presence.txtClientOTP)} hdnRegExp=${yn(otpSource.presence.hdnRegExp)} btnContinue=${yn(otpSource.presence.btnContinue)} captchaFields=${yn(otpSource.presence.captchaLoginFields)} eventTarget=${otpSource.eventTargetSource} formAction=${otpSource.formActionPaths.join(",") || "-"} postTo=${otpSource.postPath}`,
+    );
     const code = await prompts.readOtp({
       message: "Enter the SMS one-time code from Clalit.",
     });
     if (!/^\d{4,8}$/.test(code)) throw new AuthenticationError("INVALID_OTP_FORMAT");
+    const otpCodeAt = Date.now();
 
     const otpBody = buildPostBackBody(
       otpState,
@@ -368,6 +404,8 @@ export class ClalitAuth {
       "",
     );
     const otpPostSummary = summarizePostBodyKeys(otpBody);
+    const jarBeforeOtpPost = await this.transport.listCookieNames();
+    this.#progress("otp_post", `POST ${PATHS.otpSms} eventTarget=${otpEventTarget} (code not logged)`);
     const verified = await this.transport.request(otpUrl, {
       method: "POST",
       allowLoginHtml: true,
@@ -378,16 +416,49 @@ export class ClalitAuth {
       },
       body: otpBody,
     });
-    // Redacted dump on OTP 200 redisplay (field names + EVENTTARGET only).
+    const otpPostMs = Date.now() - otpCodeAt;
+    // Redacted OTP POST summary; full dump on OTP 200 redisplay.
+    let otpPostDiag: OtpPostDiagnostic | undefined;
+    const relatedDumps: string[] = [];
     try {
       const peekHtml = await verified.clone().text();
+      otpPostDiag = summarizeOtpPostResponse({
+        status: verified.status,
+        requestUrl: otpUrl,
+        ...(verified.url ? { responseUrl: verified.url } : {}),
+        ...(verified.headers.get("location") ? { location: verified.headers.get("location")! } : {}),
+        ...(verified.headers.get("content-type")
+          ? { contentType: verified.headers.get("content-type")! }
+          : {}),
+        html: peekHtml,
+        setCookieNames: responseSetCookieNames(verified),
+        jarBefore: jarBeforeOtpPost,
+        jarAfter: await this.transport.listCookieNames(),
+        postBody: otpBody,
+        source: otpSource,
+        timingMs: {
+          captchaToOtpPageMs,
+          otpPageToCodeMs: otpCodeAt - otpPageReadyAt,
+          otpPostMs,
+        },
+      });
+      this.#progress(
+        "otp_post",
+        `→ ${verified.status} kind=${otpPostDiag.pageKind} next=${otpPostDiag.locationPath ?? "-"} set-cookie=[${otpPostDiag.setCookieNames.join(",")}] (${otpPostMs} ms)`,
+      );
       if (verified.status === 200 && otpEntryFormPresent(peekHtml)) {
-        await writeOtpRedisplayDump({
+        const dumpPath = await writeOtpRedisplayDump({
           fieldNames: otpPostSummary.keys,
           eventTarget: otpEventTarget,
-          validationMessagePresent: otpValidationMessagePresent(peekHtml),
+          validationMessagePresent: otpPostDiag.validationMessagePresent,
           status: verified.status,
+          otpPost: otpPostDiag,
         });
+        if (dumpPath) relatedDumps.push(dumpPath);
+        this.#progress(
+          "otp_redisplay",
+          `portal redisplayed the OTP form (validation=${yn(otpPostDiag.validationMessagePresent)}, snippets=${otpPostDiag.validationSnippets.length}); dump ${dumpPath ?? "(write failed)"}`,
+        );
       }
     } catch {
       /* diagnostic only */
@@ -397,7 +468,8 @@ export class ClalitAuth {
     const hops = await this.#completePortalSessionAfterOtp(verified, otpUrl);
 
     // Fail-closed: do not markAuthenticated / write session on incomplete jars.
-    await this.#assertCompleteOtpSession(hops);
+    await this.#assertCompleteOtpSession(hops, otpPostDiag, relatedDumps);
+    this.#progress("result", "session complete (portal auth + labs probe ok)");
 
     this.transport.markAuthenticated();
     return this.transport.exportSession();
@@ -436,12 +508,16 @@ export class ClalitAuth {
    * Fail closed when the jar lacks Imperva/TS-style cookies or LabsTestList still
    * redirects to Login. Does not call markAuthenticated — session must not be written.
    */
-  async #assertCompleteOtpSession(hops: LoginHopDiagnostic[]): Promise<void> {
+  async #assertCompleteOtpSession(
+    hops: LoginHopDiagnostic[],
+    otpPost?: OtpPostDiagnostic,
+    relatedDumps: string[] = [],
+  ): Promise<void> {
     const finalJarNames = await this.transport.listCookieNames();
     const finalJarCount = await this.transport.cookieCount();
     const hasDefense = finalJarNames.some(isPortalDefenseCookieName);
 
-    let labsProbe: { status: number; location?: string; loginRedirect: boolean } | undefined;
+    let labsProbe: LabsProbeDiagnostic | undefined;
     let labsLoginRedirect = false;
     try {
       const labsUrl = PORTAL_ORIGIN + PATHS.labsList;
@@ -463,38 +539,62 @@ export class ClalitAuth {
         }
       }
       labsLoginRedirect = loginRedirect;
+      const locationPath = urlPathOnly(location);
       labsProbe = {
         status: labsRes.status,
         ...(location ? { location } : {}),
+        ...(locationPath ? { locationPath } : {}),
         loginRedirect,
       };
     } catch {
       labsLoginRedirect = true;
       labsProbe = { status: 0, loginRedirect: true };
     }
-
-    await writeLoginHopDump({
-      hops,
-      finalJarNames,
-      finalJarCount,
-      reason: !hasDefense
-        ? "missing_portal_defense_cookies"
-        : labsLoginRedirect
-          ? "labs_login_redirect"
-          : "ok",
-      ...(labsProbe ? { labsProbe } : {}),
-    });
+    this.#progress(
+      "labs_probe",
+      `GET ${PATHS.labsList} → ${labsProbe.status}${labsProbe.locationPath ? ` → ${labsProbe.locationPath}` : ""} (${labsLoginRedirect ? "login redirect: not signed in" : "ok"})`,
+    );
 
     const incompleteReason = !hasDefense
       ? "missing_portal_defense_cookies"
       : labsLoginRedirect
         ? "labs_login_redirect"
         : undefined;
-    if (incompleteReason) {
+    const portalAuthCookieSeen =
+      finalJarNames.some(isPortalAuthCookieName) ||
+      hops.some((h) => h.setCookieNames.some(isPortalAuthCookieName));
+    const why = incompleteReason
+      ? explainOtpFailure({
+          ...(otpPost ? { otpPost } : {}),
+          hasDefenseCookies: hasDefense,
+          portalAuthCookieSeen,
+          labsLoginRedirect,
+        })
+      : undefined;
+
+    const hopDump = await writeLoginHopDump({
+      hops,
+      finalJarNames,
+      finalJarCount,
+      reason: incompleteReason ?? "ok",
+      ...(labsProbe ? { labsProbe } : {}),
+      ...(why ? { why } : {}),
+      ...(otpPost ? { otpPost } : {}),
+      relatedDumps,
+    });
+    this.#progress("dump", `login-hops ${hopDump ?? "(write failed)"}`);
+
+    if (incompleteReason && why) {
+      const dumpPaths = [...relatedDumps, ...(hopDump ? [hopDump] : [])];
+      this.#progress(
+        "result",
+        `incomplete: ${why.why}${why.signals.length ? ` [${why.signals.join(",")}]` : ""} — ${why.en}`,
+      );
       throw new AuthenticationError(
         "OTP_SESSION_INCOMPLETE",
         undefined,
-        otpSessionIncompleteMessage(incompleteReason),
+        `${otpSessionIncompleteMessage(incompleteReason)} Why (${why.why}): ${why.en}`,
+        { why: why.why, en: why.en, he: why.he, signals: why.signals, dumpPaths },
       );
     }
   }
@@ -536,15 +636,30 @@ export class ClalitAuth {
       }
 
       const jarCookieNames = await this.transport.listCookieNames();
+      const locationHeader = current.headers.get("location") ?? undefined;
+      const locationPath = urlPathOnly(locationHeader, currentUrl);
+      const contentType = contentTypeOnly(ct);
+      const pageKind = classifyLoginPageKind({
+        url: currentUrl,
+        status: current.status,
+        html,
+        ...(locationHeader ? { location: locationHeader } : {}),
+      });
       hops.push({
         url: currentUrl,
         status: current.status,
         setCookieNames,
         jarCookieNames,
         jarCount: jarCookieNames.length,
+        ...(contentType ? { contentType } : {}),
+        ...(locationPath ? { locationPath } : {}),
+        pageKind,
       });
+      this.#progress(
+        "hop",
+        `${urlPathOnly(currentUrl) ?? "?"} → ${current.status} kind=${pageKind}${locationPath ? ` next=${locationPath}` : ""} set-cookie=[${setCookieNames.join(",")}]`,
+      );
 
-      const locationHeader = current.headers.get("location") ?? undefined;
       const htmlTarget = html ? extractHtmlRedirectTarget(html) : undefined;
       const jsNames = jsCookieLines
         .map(setCookieHeaderName)
@@ -592,8 +707,9 @@ export class ClalitAuth {
     loginUrl: string,
     body: string,
     loginHtmlForDump: string,
-  ): Promise<string> {
+  ): Promise<OtpPageResult> {
     const otpUrl = PORTAL_ORIGIN + PATHS.otpSms;
+    let currentUrl = loginUrl;
     const portalLoginUrl = PORTAL_ORIGIN + PATHS.login;
     let current = await this.transport.request(loginUrl, {
       method: "POST",
@@ -614,7 +730,7 @@ export class ClalitAuth {
         throw new AuthenticationError("BOT_CHALLENGE", current.status);
       }
       if (looksLikeOtpPage(html)) {
-        return html;
+        return { html, url: currentUrl };
       }
       // Captcha accepted: JS redirect to Login.aspx (still captcha-shaped HTML).
       if (looksLikeHasOtpAcceptedRedirect(html)) {
@@ -626,12 +742,14 @@ export class ClalitAuth {
         const hasOtpValue = extractHasOtpCookieValue(html) ?? "-otp-sms";
         await this.transport.setCookie(`HasOTP=${hasOtpValue}; Path=/; Max-Age=7776000`);
         current = await this.transport.request(portalLoginUrl, { allowLoginHtml: true });
+        currentUrl = portalLoginUrl;
         html = await readText(current);
         continue;
       }
       if (looksLikeCaptchaLoginPage(html)) {
         // Prefer the response HTML (may show validators); fall back to pre-POST shape.
         const dumpHtml = html.length > 100 ? html : loginHtmlForDump;
+        this.#progress("captcha_submit", `→ ${current.status} CAPTCHA form redisplayed (rejected)`);
         await writeCaptchaRejectedDump({
           pageHtml: dumpHtml,
           postBody: body,
@@ -644,6 +762,7 @@ export class ClalitAuth {
       if (location && isRedirectStatus(current.status)) {
         const next = location.startsWith("http") ? location : PORTAL_ORIGIN + location;
         current = await this.transport.request(next, { allowLoginHtml: true });
+        currentUrl = next;
         html = await readText(current);
         continue;
       }
@@ -652,6 +771,7 @@ export class ClalitAuth {
       if (!triedOtpGet) {
         triedOtpGet = true;
         current = await this.transport.request(otpUrl, { allowLoginHtml: true });
+        currentUrl = otpUrl;
         html = await readText(current);
         continue;
       }

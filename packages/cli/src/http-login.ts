@@ -17,8 +17,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   CAPTCHA_CHECK_BUDGET_MS,
+  formatLoginProgress,
   login,
   type CaptchaChallenge,
+  type LoginFailureDiagnostics,
   type LoginPrompts,
   type OtpChallenge,
 } from "@clalit/core";
@@ -60,6 +62,10 @@ button{margin-top:1rem;padding:.6rem 1.1rem;font:inherit;border:0;border-radius:
 button:disabled,form[data-sent] button{opacity:.6;cursor:default;pointer-events:none}
 .note{font-size:.85rem;opacity:.7}
 .err{color:#b00020;margin:0 0 1rem}
+.why{border:1px solid #b0002055;border-radius:.4rem;padding:.5rem .75rem;margin:0 0 1rem}
+.why p{opacity:1;margin:.25rem 0}
+code{font-size:.85em;word-break:break-all}
+ul.dumps{margin:.25rem 0 1rem;padding-inline-start:1.25rem;font-size:.85rem}
 img.captcha{max-width:100%;height:auto;border:1px solid #8884;border-radius:.4rem;margin:.5rem 0;background:#fff}`;
 
 function layout(title: string, body: string, opts?: { refreshSeconds?: number }): string {
@@ -144,11 +150,35 @@ export function donePage(): string {
   );
 }
 
-export function errorPage(message: string): string {
+/** Hebrew + English "why" block with redacted dump paths (no OTP / ID / cookie values). */
+export function failureDetailsBlock(details?: LoginFailureDiagnostics): string {
+  if (!details || (!details.he && !details.en && !details.dumpPaths?.length)) return "";
+  const he = details.he
+    ? `<p lang="he" dir="rtl"><strong>למה:</strong> ${escapeHtml(details.he)}</p>`
+    : "";
+  const en = details.en
+    ? `<p lang="en" dir="ltr"><strong>Why:</strong> ${escapeHtml(details.en)}</p>`
+    : "";
+  const code = details.why
+    ? `<p class="note" dir="ltr">Reason code: <code>${escapeHtml(details.why)}</code>${
+        details.signals?.length
+          ? ` · signals: <code>${escapeHtml(details.signals.join(", "))}</code>`
+          : ""
+      }</p>`
+    : "";
+  const dumps = details.dumpPaths?.length
+    ? `<p class="note" dir="ltr">Redacted diagnostics (no OTP / ID / cookie values) — קבצי אבחון:</p>
+<ul class="dumps" dir="ltr">${details.dumpPaths.map((p) => `<li><code>${escapeHtml(p)}</code></li>`).join("")}</ul>`
+    : "";
+  return `<div class="why">${he}${en}${code}</div>${dumps}`;
+}
+
+export function errorPage(message: string, details?: LoginFailureDiagnostics): string {
   return layout(
     "Sign-in stopped",
-    `<h1>Sign-in stopped</h1>
-<p>${escapeHtml(message)}</p>
+    `<h1>Sign-in stopped · ההתחברות נעצרה</h1>
+${failureDetailsBlock(details)}
+<p dir="ltr">${escapeHtml(message)}</p>
 <p class="note">Close this window and run <code>clalit-mcp login --http</code> again. Or use terminal prompts: <code>clalit-mcp login</code>. Never bypass Imperva.</p>`,
   );
 }
@@ -348,6 +378,7 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
   const ttlMs = options.ttlMs ?? HTTP_LOGIN_TTL_MS;
   let phase: Phase = "id";
   let lastError: string | undefined;
+  let lastErrorDetails: LoginFailureDiagnostics | undefined;
   let captchaMeta: { hasImage: boolean; fieldHint?: string } = { hasImage: false };
   let captchaBytes: Uint8Array | undefined;
   let captchaType = "image/png";
@@ -377,10 +408,11 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
     }
   };
 
-  const fail = (message: string, code = 1): void => {
+  const fail = (message: string, code = 1, details?: LoginFailureDiagnostics): void => {
     clearPhaseWatchdog();
     phase = "failed";
     lastError = message;
+    lastErrorDetails = details;
     idSlot.pending?.reject(new Error(message));
     captchaSlot.pending?.reject(new Error(message));
     otpSlot.pending?.reject(new Error(message));
@@ -450,7 +482,7 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
       return;
     }
     if (phase === "failed") {
-      sendHtml(res, 200, errorPage(lastError ?? "Sign-in failed."));
+      sendHtml(res, 200, errorPage(lastError ?? "Sign-in failed.", lastErrorDetails));
       return;
     }
     if (phase === "loading_captcha") {
@@ -683,11 +715,11 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
       }
 
       const seedCookies = await warmPortalCookiesViaPlaywright();
-      const client = await login(
-        idNumber,
-        prompts,
-        seedCookies?.length ? { seedCookies } : {},
-      );
+      const client = await login(idNumber, prompts, {
+        ...(seedCookies?.length ? { seedCookies } : {}),
+        // One redacted line per stage on stderr (no OTP / ID / cookie values).
+        onProgress: (event) => console.error(formatLoginProgress(event)),
+      });
       const session = await client.exportSession();
       await saveSession(session);
       clearPhaseWatchdog();
@@ -725,11 +757,12 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
         return;
       }
       if (code === "OTP_SESSION_INCOMPLETE") {
-        fail(
-          (err instanceof Error ? err.message : "OTP session incomplete.") +
-            " See ~/.config/clalit-mcp/login-hops-*.json (cookie names only).",
-          1,
-        );
+        const details = loginFailureDetails(err);
+        const dumpHint = details?.dumpPaths?.length
+          ? ""
+          : " See ~/.config/clalit-mcp/login-hops-*.json and otp-redisplay-*.json (redacted).";
+        logFailureToStderr(details);
+        fail((err instanceof Error ? err.message : "OTP session incomplete.") + dumpHint, 1, details);
         return;
       }
       fail(err instanceof Error ? err.message : "Login failed.", 1);
@@ -752,4 +785,19 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
     server.closeIdleConnections?.();
     await closeServer(server).catch(() => undefined);
   }
+}
+
+function loginFailureDetails(err: unknown): LoginFailureDiagnostics | undefined {
+  if (!err || typeof err !== "object" || !("diagnostics" in err)) return undefined;
+  const d = (err as { diagnostics?: LoginFailureDiagnostics }).diagnostics;
+  return d && typeof d === "object" ? d : undefined;
+}
+
+/** Same why + dump paths on stderr so terminal users see it without the browser tab. */
+export function logFailureToStderr(details?: LoginFailureDiagnostics): void {
+  if (!details) return;
+  if (details.why) console.error(`[clalit login] why: ${details.why}${details.signals?.length ? ` [${details.signals.join(",")}]` : ""}`);
+  if (details.en) console.error(`[clalit login] ${details.en}`);
+  if (details.he) console.error(`[clalit login] ${details.he}`);
+  for (const p of details.dumpPaths ?? []) console.error(`[clalit login] dump: ${p}`);
 }

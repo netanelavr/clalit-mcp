@@ -1199,3 +1199,238 @@ describe("post-OTP hop patterns", () => {
     expect(JSON.stringify(dump)).not.toMatch(/wEPDwUK/);
   });
 });
+
+describe("OTP failure diagnostics (redacted, one-attempt)", () => {
+  /** Minimal portal mock: captcha → OTP page (configurable) → OTP POST (configurable) → labs 302. */
+  function portalMock(opts: {
+    otpGetHtml?: string;
+    captchaPost?: () => Response;
+    otpPost: () => Response;
+  }): typeof fetch {
+    return async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("infootplogin.aspx") && method === "GET") {
+        return responseWithSetCookies(loginHtml, { cookies: DEFENSE_COOKIES });
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "image/png" } });
+      }
+      if (url.includes("infootplogin.aspx") && method === "POST") {
+        return opts.captchaPost?.() ?? new Response(null, { status: 302, headers: { location: PATHS.otpSms } });
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "GET") {
+        return htmlResponse(opts.otpGetHtml ?? otpContinueEntitiesHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "POST") {
+        return opts.otpPost();
+      }
+      if (url.includes("LabsTestList.aspx")) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location:
+              "/OnlineWeb/General/Login.aspx?ReturnUrl=%2fOnlineWeb%2fServices%2fLabs%2fLabsTestList.aspx",
+          },
+        });
+      }
+      if (url.includes("Login.aspx")) {
+        return htmlResponse("<html><body>anonymous login</body></html>");
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+  }
+
+  const wrongCodeHtml = otpContinueEntitiesHtml.replace(
+    "</form>",
+    `<span id="ctl00_cphBody_cvOTP" style="color:Red;">הקוד שהוזן שגוי 987654</span></form>`,
+  );
+
+  test("wrong-code redisplay: rich otp-redisplay dump, hop kinds, why on error, progress lines", async () => {
+    const dumpDir = mkdtempSync(join(tmpdir(), "clalit-diag-"));
+    process.env.CLALIT_CONFIG_DIR = dumpDir;
+    const progress: string[] = [];
+    const auth = new ClalitAuth(
+      new ClalitTransport({
+        fetch: portalMock({ otpPost: () => htmlResponse(wrongCodeHtml) }),
+        minGapMs: 0,
+      }),
+    );
+    const thrown = (await auth
+      .loginInteractive(
+        "123456789",
+        { solveCaptcha: async () => "AB12", readOtp: async () => "444444" },
+        { onProgress: (e) => progress.push(`${e.stage}: ${e.message}`) },
+      )
+      .then(
+        () => {
+          throw new Error("expected OTP_SESSION_INCOMPLETE");
+        },
+        (err: unknown) => err,
+      )) as AuthenticationError;
+
+    expect(thrown).toMatchObject({ code: "OTP_SESSION_INCOMPLETE" });
+    expect(thrown.message).toMatch(/LabsTestList still redirects/);
+    expect(thrown.message).toMatch(/otp_redisplayed_with_error/);
+    expect(thrown.diagnostics?.why).toBe("otp_redisplayed_with_error");
+    expect(thrown.diagnostics?.he).toMatch(/שגוי/);
+    expect(thrown.diagnostics?.dumpPaths).toHaveLength(2);
+    expect(thrown.diagnostics?.dumpPaths?.[0]).toMatch(/otp-redisplay-.*\.json$/);
+    expect(thrown.diagnostics?.dumpPaths?.[1]).toMatch(/login-hops-.*\.json$/);
+
+    const redisplayFile = readdirSync(dumpDir).find((f) => f.startsWith("otp-redisplay-"))!;
+    const redisplay = JSON.parse(readFileSync(join(dumpDir, redisplayFile), "utf8"));
+    expect(redisplay).toMatchObject({
+      version: 2,
+      httpStatus: 200,
+      validationMessagePresent: true,
+      otpPost: {
+        status: 200,
+        requestPath: "/OnlineWeb/General/OTPSMSVerification.aspx",
+        pageKind: "otp",
+        setCookieNames: [],
+        responseForm: { txtClientOTP: true, hdnRegExp: true, btnContinue: true },
+        post: {
+          eventTarget: "ctl00$cphBody$btnContinue$lnkSubButton",
+          eventTargetEmpty: false,
+          missingExpectedKeys: [],
+          unexpectedLoginKeys: [],
+        },
+        source: {
+          path: "/OnlineWeb/General/OTPSMSVerification.aspx",
+          pageKind: "otp",
+          formActionMatchesPost: true,
+          eventTargetSource: "extracted",
+          resolvedOtpField: "ctl00$cphBody$txtClientOTP",
+        },
+      },
+    });
+    expect(redisplay.otpPost.validationSnippets[0].text).toBe("הקוד שהוזן שגוי #");
+    expect(typeof redisplay.otpPost.timingMs.captchaToOtpPageMs).toBe("number");
+    expect(typeof redisplay.otpPost.timingMs.otpPageToCodeMs).toBe("number");
+    expect(redisplay.otpPost.jarCookieNamesBefore).toEqual(
+      expect.arrayContaining(["visid_incap_2919800", "TS21fa3c30027"]),
+    );
+
+    const hopsFile = readdirSync(dumpDir).find((f) => f.startsWith("login-hops-"))!;
+    const hops = JSON.parse(readFileSync(join(dumpDir, hopsFile), "utf8"));
+    expect(hops).toMatchObject({
+      version: 2,
+      reason: "labs_login_redirect",
+      why: { why: "otp_redisplayed_with_error" },
+      pageKinds: ["otp"],
+      labsProbe: { status: 302, locationPath: "/OnlineWeb/General/Login.aspx", loginRedirect: true },
+    });
+    expect(hops.hops[0]).toMatchObject({ pageKind: "otp", contentType: "text/html" });
+
+    const stages = progress.map((l) => l.split(":")[0]);
+    expect(stages).toEqual(
+      expect.arrayContaining([
+        "login_page",
+        "captcha_submit",
+        "captcha_ok",
+        "otp_page",
+        "otp_post",
+        "otp_redisplay",
+        "hop",
+        "labs_probe",
+        "dump",
+        "result",
+      ]),
+    );
+    const all = [progress.join("\n"), ...readdirSync(dumpDir).map((f) => readFileSync(join(dumpDir, f), "utf8"))].join(
+      "\n",
+    );
+    expect(all).not.toContain("444444"); // OTP
+    expect(all).not.toContain("123456789"); // ID
+    expect(all).not.toContain("AB12"); // CAPTCHA answer
+    expect(all).not.toContain("987654"); // digits inside portal validation text
+    expect(all).not.toMatch(/wEPDwUK/); // VIEWSTATE
+    expect(all).not.toContain("visid-fixture"); // cookie values
+    expect(all).not.toContain("ts-fixture");
+  });
+
+  test("OTP posted from a Login.aspx page state (live shape) → otp_source_not_otp_form", async () => {
+    const dumpDir = mkdtempSync(join(tmpdir(), "clalit-diag-"));
+    process.env.CLALIT_CONFIG_DIR = dumpDir;
+    // Captcha-accepted HasOTP redirect → Login.aspx whose HTML only *mentions*
+    // OTPSMSVerification (no SMS input) — what the 2026-10-05 live dump suggests.
+    const hasOtpHtml = `${loginHtml}<script>setCookie('HasOTP', '-otp-sms', 90);redirectInfoToOnline('/OnlineWeb/General/Login.aspx');</script>`;
+    const loginWithOtpMention = loginHtml.replace(
+      "</form>",
+      `<input type="hidden" name="__PREVIOUSPAGE" value="pp" /><script>var otpUrl='/OnlineWeb/General/OTPSMSVerification.aspx';</script></form>`,
+    );
+    const base = portalMock({
+      captchaPost: () => htmlResponse(hasOtpHtml),
+      otpPost: () => htmlResponse(wrongCodeHtml),
+    });
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (/\/OnlineWeb\/General\/Login\.aspx$/i.test(url) && (init?.method ?? "GET") === "GET") {
+        return htmlResponse(loginWithOtpMention);
+      }
+      return base(input, init);
+    };
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const thrown = (await auth
+      .loginInteractive("123456789", { solveCaptcha: async () => "AB12", readOtp: async () => "555555" })
+      .then(
+        () => {
+          throw new Error("expected OTP_SESSION_INCOMPLETE");
+        },
+        (err: unknown) => err,
+      )) as AuthenticationError;
+    expect(thrown.code).toBe("OTP_SESSION_INCOMPLETE");
+    expect(thrown.diagnostics?.why).toBe("otp_source_not_otp_form");
+    expect(thrown.diagnostics?.signals).toEqual(
+      expect.arrayContaining([
+        "source_page_without_otp_input",
+        "source_page_has_captcha_login_fields",
+        "unexpected_login_keys_in_otp_post",
+        "otp_field_short_name_fallback",
+        "hdnRegExp_missing",
+      ]),
+    );
+    const redisplayFile = readdirSync(dumpDir).find((f) => f.startsWith("otp-redisplay-"))!;
+    const redisplay = JSON.parse(readFileSync(join(dumpDir, redisplayFile), "utf8"));
+    expect(redisplay.otpPost.source).toMatchObject({
+      path: "/OnlineWeb/General/Login.aspx",
+      presence: { txtClientOTP: false, captchaLoginFields: true, previousPageField: true },
+    });
+    // Whatever target was picked from the wrong page is visible (control id only).
+    expect(typeof redisplay.otpPost.post.eventTarget).toBe("string");
+    expect(redisplay.otpPost.post.missingExpectedKeys).toContain("*hdnRegExp");
+    expect(JSON.stringify(redisplay)).not.toContain("555555");
+  });
+
+  test("OTP 302 without PostOtpAuth → missing_post_otp_auth with hop kinds", async () => {
+    const dumpDir = mkdtempSync(join(tmpdir(), "clalit-diag-"));
+    process.env.CLALIT_CONFIG_DIR = dumpDir;
+    const auth = new ClalitAuth(
+      new ClalitTransport({
+        fetch: portalMock({
+          otpPost: () =>
+            new Response(null, {
+              status: 302,
+              headers: { location: "/OnlineWeb/General/PersonalDetails.aspx?x=1" },
+            }),
+        }),
+        minGapMs: 0,
+      }),
+    );
+    const thrown = (await auth
+      .loginInteractive("123456789", { solveCaptcha: async () => "AB12", readOtp: async () => "666666" })
+      .catch((err: unknown) => err)) as AuthenticationError;
+    expect(thrown.diagnostics?.why).toBe("missing_post_otp_auth");
+    expect(readdirSync(dumpDir).some((f) => f.startsWith("otp-redisplay-"))).toBe(false);
+    const hopsFile = readdirSync(dumpDir).find((f) => f.startsWith("login-hops-"))!;
+    const hops = JSON.parse(readFileSync(join(dumpDir, hopsFile), "utf8"));
+    expect(hops.hops[0]).toMatchObject({
+      status: 302,
+      pageKind: "object_moved",
+      locationPath: "/OnlineWeb/General/PersonalDetails.aspx",
+    });
+    expect(hops.otpPost).toMatchObject({ pageKind: "object_moved", finalPath: "/OnlineWeb/General/PersonalDetails.aspx" });
+  });
+});
+

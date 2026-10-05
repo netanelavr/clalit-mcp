@@ -4,6 +4,7 @@ import {
   captchaPage,
   escapeHtml,
   errorPage,
+  failureDetailsBlock,
   HTTP_LOGIN_TTL_MS,
   idPage,
   otpPage,
@@ -57,4 +58,27 @@ describe("http-login helpers", () => {
     takeOrWait(slot, "second");
     await expect(waitForAnswer(slot)).resolves.toBe("second");
   });
+
+  test("error page shows Hebrew + English why and dump paths (escaped)", () => {
+    const html = errorPage("OTP finished but LabsTestList still redirects to login.", {
+      why: "otp_redisplayed_with_error",
+      en: "Portal redisplayed the OTP form with a validation message — likely a wrong or expired SMS code.",
+      he: "הפורטל הציג שוב את טופס הקוד עם הודעת שגיאה — כנראה קוד SMS שגוי או שפג תוקפו.",
+      signals: ["otp_entry_slow"],
+      dumpPaths: ["/Users/me/.config/clalit-mcp/otp-redisplay-x.json", "/tmp/<script>.json"],
+    });
+    expect(html).toContain("ההתחברות נעצרה");
+    expect(html).toContain("למה:");
+    expect(html).toContain("כנראה קוד SMS שגוי");
+    expect(html).toContain("Why:");
+    expect(html).toContain("wrong or expired");
+    expect(html).toContain("otp_redisplayed_with_error");
+    expect(html).toContain("otp_entry_slow");
+    expect(html).toContain("/Users/me/.config/clalit-mcp/otp-redisplay-x.json");
+    expect(html).toContain("/tmp/&lt;script&gt;.json");
+    expect(html).not.toContain("<script>.json");
+    expect(failureDetailsBlock(undefined)).toBe("");
+    expect(errorPage("boom")).not.toContain("class=\"why\"");
+  });
 });
+

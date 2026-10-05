@@ -1,4 +1,11 @@
-import { login, PATHS, PORTAL_ORIGIN, type LoginPrompts } from "@clalit/core";
+import {
+  formatLoginProgress,
+  login,
+  PATHS,
+  PORTAL_ORIGIN,
+  type LoginFailureDiagnostics,
+  type LoginPrompts,
+} from "@clalit/core";
 import { warmPortalCookiesViaPlaywright } from "./playwright-cookies.js";
 import { ask } from "./prompt.js";
 import { saveSession } from "./store.js";
@@ -28,7 +35,10 @@ export async function runLogin(idNumber?: string): Promise<number> {
 
   try {
     const seedCookies = await warmPortalCookiesViaPlaywright();
-    const client = await login(id, prompts, seedCookies?.length ? { seedCookies } : {});
+    const client = await login(id, prompts, {
+      ...(seedCookies?.length ? { seedCookies } : {}),
+      onProgress: (event) => console.error(formatLoginProgress(event)),
+    });
     const session = await client.exportSession();
     await saveSession(session);
     console.log("Signed in. Session saved under the clalit-mcp config directory (mode 0600).");
@@ -59,9 +69,18 @@ export async function runLogin(idNumber?: string): Promise<number> {
     }
     if (code === "OTP_SESSION_INCOMPLETE") {
       console.error(err instanceof Error ? err.message : "OTP session incomplete.");
-      console.error(
-        "A redacted login-hops-*.json dump was written under ~/.config/clalit-mcp (cookie names only).",
-      );
+      const details =
+        err && typeof err === "object" && "diagnostics" in err
+          ? (err as { diagnostics?: LoginFailureDiagnostics }).diagnostics
+          : undefined;
+      if (details?.he) console.error(details.he);
+      if (details?.dumpPaths?.length) {
+        for (const p of details.dumpPaths) console.error(`Redacted dump: ${p}`);
+      } else {
+        console.error(
+          "A redacted login-hops-*.json dump was written under ~/.config/clalit-mcp (cookie names only).",
+        );
+      }
       return 1;
     }
     console.error(err instanceof Error ? err.message : "Login failed.");

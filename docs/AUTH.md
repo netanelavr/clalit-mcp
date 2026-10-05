@@ -43,7 +43,7 @@ Files:
 | `session.json` | Serialized cookie jar + `authenticatedAt` | `0600` |
 | `captcha-rejected-*.json` | Redacted CAPTCHA_REJECTED dump (HTML field shape + POST **keys** only; no ID/captcha/viewstate values) | `0600` |
 | `login-hops-*.json` | Redacted OTP→portal hop dump (URL/status/Set-Cookie **names**/jar **names** only) | `0600` |
-| `otp-redisplay-*.json` | When OTP POST returns 200 still showing the form: posted **field names** + `__EVENTTARGET` used + validation-message flag (never OTP/cookie values) | `0600` |
+| `otp-redisplay-*.json` | When OTP POST returns 200 still showing the form: posted **field names**, `__EVENTTARGET` used, and (v2) a redacted `otpPost` summary: page kind, presence flags, missing/unexpected keys, source page, digit-stripped validation text, cookie **names** before/after, timings (never OTP/ID/cookie/viewstate values) | `0600` |
 
 Never log cookie values. Never commit this directory.
 
@@ -54,7 +54,22 @@ After SMS OTP, login **does not** write `session.json` unless:
 1. The cookie jar contains at least one Imperva/TS-style name (`visid_incap_*`, `incap_ses_*`, `TS…`, or `_cls_*`), and
 2. A probe of `LabsTestList.aspx` does **not** 302/HTML-redirect to Login.
 
-A redacted `login-hops-*.json` dump (per-hop URL, status, Set-Cookie **names**, jar **names**, final count) is written under the config directory — never cookie values.
+A redacted `login-hops-*.json` dump (per-hop URL, status, content-type, Location path, page kind, Set-Cookie **names**, jar **names**, final count) is written under the config directory — never cookie values.
+
+### Reading a failed-login dump
+
+Start with `why.why` in the newest `login-hops-*.json`. The same reason code is on the `login --http` error page and in the stderr `[clalit login] why:` line.
+
+- `otp_redisplayed_with_error`: the portal showed the OTP form again with a visible error. See `otpPost.validationSnippets[].text` (digits shown as `#`). This is usually a wrong or expired code, so request a new SMS.
+- `otp_redisplayed_silent`: the form came back with no visible error. Compare `otpPost.post.missingExpectedKeys` with `otpPost.responseForm`.
+- `otp_source_not_otp_form`: the OTP POST was built from a page without the SMS input. `otpPost.source.path` and `otpPost.source.presence` show which page. `otpPost.post.unexpectedLoginKeys` lists login or CAPTCHA keys that leaked into the POST.
+- `otp_post_form_action_mismatch`: the page's `<form action>` differs from the POST URL.
+- `otp_event_target_empty`: the POST had an empty `__EVENTTARGET`, so Continue never registered as clicked.
+- `missing_post_otp_auth`: the client left the OTP form, but no `PostOtpAuth` or `AfterLogin` cookie arrived. See `hops[].pageKind`, `locationPath`, and `setCookieNames`.
+- `missing_portal_defense_cookies`: no Imperva or TS defense cookies were found.
+- `labs_login_redirect`: auth cookies arrived, but labs still redirects to sign-in.
+
+`why.signals` adds hints such as `otp_entry_slow`, meaning more than 3 minutes passed between the OTP page and the code. `relatedDumps` links the matching `otp-redisplay-*.json`.
 
 On a residential Mac, login optionally warms those defense cookies via **Playwright** (Chrome channel when available) before the Node CAPTCHA/OTP chain, then merges `Domain=.clalit.co.il` cookies into the tough-cookie jar with `loose` parsing.
 

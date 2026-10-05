@@ -53,9 +53,34 @@ const AUTH_MESSAGES: Record<string, string> = {
   OTP_SESSION_INCOMPLETE: otpSessionIncompleteMessage("missing_portal_defense_cookies"),
 };
 
+/**
+ * Local, redacted context for a failed login (no upstream bodies, cookie values,
+ * OTP, or ID). Dump paths point at files under the clalit-mcp config dir.
+ */
+export interface LoginFailureDiagnostics {
+  /** Machine-readable reason (e.g. otp_redisplayed_with_error). */
+  why?: string;
+  /** One-sentence English explanation. */
+  en?: string;
+  /** One-sentence Hebrew explanation. */
+  he?: string;
+  /** Secondary hints (e.g. otp_entry_slow). */
+  signals?: string[];
+  /** Redacted dump files written for this attempt. */
+  dumpPaths?: string[];
+}
+
 export class AuthenticationError extends ClalitError {
-  constructor(code = "AUTHENTICATION_FAILED", status?: number, message?: string) {
+  readonly diagnostics?: LoginFailureDiagnostics;
+
+  constructor(
+    code = "AUTHENTICATION_FAILED",
+    status?: number,
+    message?: string,
+    diagnostics?: LoginFailureDiagnostics,
+  ) {
     super(code, message ?? AUTH_MESSAGES[code] ?? AUTH_MESSAGES.AUTHENTICATION_FAILED!, status);
+    if (diagnostics) this.diagnostics = diagnostics;
   }
 }
 
