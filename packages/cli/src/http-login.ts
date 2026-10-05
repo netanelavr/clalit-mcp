@@ -1,5 +1,5 @@
 /**
- * Loopback browser login (maccabi-health style).
+ * Loopback browser login for CAPTCHA + SMS OTP.
  *
  * Starts http://127.0.0.1:<port>/ where the member enters Israeli ID, CAPTCHA
  * (image proxied from the portal when available), and SMS OTP. Writes the same

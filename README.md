@@ -147,4 +147,4 @@ See [docs/README.md](docs/README.md) for the full index. Highlights:
 - [Contributing](CONTRIBUTING.md)
 - [MIT license](LICENSE)
 
-Package layout (private core → CLI → MCP) is similar in spirit to [orenyomtov/maccabi-health](https://github.com/orenyomtov/maccabi-health); Clalit uses a different upstream (WebForms HTML vs Maccabi's JSON APIs). This repo ships CLI + MCP only — not a public core library.
+Private `@clalit/core` workspace package powers the CLI and MCP only — not a published SDK.
