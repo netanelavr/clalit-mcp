@@ -16,8 +16,9 @@ Unofficial TypeScript library, CLI, and MCP server for **your own** Clalit Healt
 | `getLabResult` — one result detail | Implemented (HTML parse + fixtures) |
 | `getLabDocument` — original PDF | Implemented (POST download + fixtures) |
 | Interactive login (CAPTCHA + SMS OTP) | Designed + stubbed; **live on your Mac only** |
-| Prescriptions (מרשמים) | Roadmap — needs HAR before endpoints |
-| Referrals (הפניות) | Roadmap — needs HAR before endpoints |
+| `listPrescriptions` / issue status (מרשמים) | Implemented (HTML + IssueDrugs read; no PDF) |
+| `listLabOrders` / `getLabOrder` (הפניות לבדיקות מעבדה) | Implemented (HTML parse + fixtures; no PDF) |
+| `MedicalReferrals.aspx` / prescription·lab-order PDFs | Still out |
 
 Offline unit tests parse synthetic ASP.NET WebForms HTML fixtures. Live portal calls require a residential/user machine session (see below).
 
@@ -85,7 +86,7 @@ See [docs/LIVE-VERIFY.md](docs/LIVE-VERIFY.md) for the first live login checklis
 }
 ```
 
-Tools: `list_labs`, `get_lab_result`, `get_lab_document`. You must already have a local session from `login`.
+Tools: `list_labs`, `get_lab_result`, `get_lab_document`, `list_prescriptions`, `get_prescription_issue_status`, `list_lab_orders`, `get_lab_order`. You must already have a local session from `login`.
 
 ## Library
 
@@ -114,12 +115,11 @@ Upstream surface is **ASP.NET WebForms HTML** (`__VIEWSTATE` / `__EVENTVALIDATIO
 
 ## Roadmap
 
-1. **Now:** labs MVP + offline fixtures + Mac-local live verify.
-2. **Next (after HAR):** prescriptions (מרשמים) — stubs only until endpoints are observed.
-3. **Next (after HAR):** referrals (הפניות) — stubs only until endpoints are observed.
-4. Harden session TTL measurement, keep-alive policy, and richer analyte table heuristics from live HTML samples (sanitized fixtures welcome).
+1. **Done:** labs + prescriptions list/status + lab-orders list/detail (offline fixtures; Mac-local live optional).
+2. **Still out:** prescription / lab-order PDFs; `MedicalReferrals.aspx`.
+3. Harden session TTL measurement, keep-alive policy, and richer table heuristics from live HTML samples (sanitized fixtures welcome).
 
-Do **not** invent prescription/referral endpoints without a redacted HAR / HTML capture.
+Do **not** invent endpoints beyond the redacted HAR / HTML evidence maps.
 
 ## Privacy
 

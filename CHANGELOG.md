@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Prescriptions (מרשמים): `listPrescriptions` + optional `getPrescriptionIssueStatus` (IssueDrugsByPatientReceiptId read status only). CLI `prescriptions` / `prescription-status`; MCP `list_prescriptions` / `get_prescription_issue_status`. Zero-PHI fixtures. No PDF/print.
+- Lab orders (הפניות לבדיקות מעבדה): `listLabOrders` + `getLabOrder`. CLI `lab-orders` / `lab-order`; MCP `list_lab_orders` / `get_lab_order`. Zero-PHI fixtures. Not `MedicalReferrals.aspx`; no PDF/print.
+- Docs: CAPABILITIES / API-SOURCES / README / MCP / CLI updated; MedicalReferrals + PDFs remain out.
+
 - Session save race: `ClalitTransport` cookie restore ran on `#queue` but `exportSession` / `listCookieNames` / `cookieCount` did not await it, so `login()` → `open(session)` → immediate `exportSession` + `saveSession` often wrote a truncated `session.json` (e.g. only `ASP.NET_SessionId`) while the live jar still had ~18 auth + defense cookies. Fix: session reads enqueue on the transport queue; `open`/`connect` await `whenReady()`; `login()` keeps the authenticated transport instead of serialize→deserialize. Re-run `clalit-mcp login --http` once after upgrading (truncated files cannot be repaired).
 
 - Login OTP: after CAPTCHA/`HasOTP`, do not treat Login.aspx HTML that only *mentions* `OTPSMSVerification` as the OTP page. Require a real `txtClientOTP` input; follow Object-moved / GET `OTPSMSVerification.aspx` before collecting OTP fields. Fail closed with `OTP_PAGE_MISSING` (no SMS prompt / no OTP POST from Login.aspx ViewState). Fixes live `otp_source_not_otp_form` (2026-10-05).
