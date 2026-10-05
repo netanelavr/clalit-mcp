@@ -26,11 +26,18 @@ describe("parsePrescriptionsListHtml", () => {
     expect(items[0]!.medicines[0]).toMatchObject({
       medicineId: "opaqueMed1",
       medicineFormName: "TAB",
-      medicineStartDate: "01/01/2025xx",
+      medicineStartDate: "01/01/2025",
       medicineName: "Example Drug Alpha",
     });
+    expect(items[0]!.medicines[1]).toMatchObject({
+      medicineId: "opaqueMed2",
+      medicineFormName: "CAP",
+      medicineStartDate: "01/01/2025",
+      medicineName: "Example Drug Beta",
+    });
     expect(items[1]!.prescriptionNo).toBe("opaqueRx2");
-    expect(items[1]!.medicines[0]!.medicineName).toContain("Gamma");
+    expect(items[1]!.medicines[0]!.medicineName).toBe("Example Drug Gamma");
+    expect(items[1]!.medicines[0]!.medicineStartDate).toBe("15/02/2025");
     expect(extractPrescriptionSectionId(html)).toBe("42");
   });
 
@@ -68,14 +75,14 @@ describe("IssueDrugs helpers", () => {
       prescriptionNo: "opaqueRx1",
       medicationID: "opaqueMed1",
       medicationFormName: "TAB",
-      medicationStartDate: "01/01/2025xx",
+      medicationStartDate: "01/01/2025",
       sectionId: "42",
     });
     expect(JSON.parse(body)).toEqual({
       prescriptionNo: "opaqueRx1",
       medicationID: "opaqueMed1",
       medicationFormName: "TAB",
-      medicationStartDate: "01/01/2025xx",
+      medicationStartDate: "01/01/2025",
       sectionId: "42",
       currStatusValue: "",
     });

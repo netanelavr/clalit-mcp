@@ -4,9 +4,9 @@ export interface PrescriptionMedicine {
   medicineId: string;
   /** Opaque / form name from data-medicineFormName. */
   medicineFormName: string;
-  /** Portal start-date string from data-medicineStartDate. */
+  /** Portal start-date string from data-medicineStartDate (trailing ";" stripped). */
   medicineStartDate: string;
-  /** Display name as shown (colMedicineName), if present. */
+  /** Human-readable drug name from colMedicineName (sibling or descendant of data-* panel). */
   medicineName?: string;
 }
 

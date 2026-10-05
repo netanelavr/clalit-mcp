@@ -20,21 +20,26 @@
     <span id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_colPrescriptionFullNo">RX-OPAQUE-001</span>
     <span id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_colPrescriperName">Dr Example</span>
     <span id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_colPrescriptionType">רגיל</span>
-    <div id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_rptMedicine_ctl00_pnlMedicalDetails"
-         data-prescription="opaqueRx1"
-         data-medicineId="opaqueMed1"
-         data-medicineFormName="TAB"
-         data-medicineStartDate="01/01/2025xx">
+    <!-- Live layout: colMedicineName is a sibling of pnlMedicalDetails (data-*), not a descendant -->
+    <div id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_rptMedicine_ctl00">
       <span id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_rptMedicine_ctl00_colMedicineName">Example Drug Alpha</span>
-      <a id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_rptMedicine_ctl00_ButtonView"
-         href="javascript:__doPostBack('ctl00$ctl00$cphBody$bodyContent$rptPatientPrescriptions$ctl00$rptMedicine$ctl00$ButtonView','')">View</a>
+      <div id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_rptMedicine_ctl00_pnlMedicalDetails"
+           data-prescription="opaqueRx1"
+           data-medicineId="opaqueMed1"
+           data-medicineFormName="TAB"
+           data-medicineStartDate="01/01/2025;">
+        <a id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_rptMedicine_ctl00_ButtonView"
+           href="javascript:__doPostBack('ctl00$ctl00$cphBody$bodyContent$rptPatientPrescriptions$ctl00$rptMedicine$ctl00$ButtonView','')">View</a>
+      </div>
     </div>
-    <div id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_rptMedicine_ctl01_pnlMedicalDetails"
-         data-prescription="opaqueRx1"
-         data-medicineId="opaqueMed2"
-         data-medicineFormName="CAP"
-         data-medicineStartDate="01/01/2025yy">
+    <div id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_rptMedicine_ctl01">
       <span id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_rptMedicine_ctl01_colMedicineName">Example Drug Beta</span>
+      <div id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl00_rptMedicine_ctl01_pnlMedicalDetails"
+           data-prescription="opaqueRx1"
+           data-medicineId="opaqueMed2"
+           data-medicineFormName="CAP"
+           data-medicineStartDate="01/01/2025;;">
+      </div>
     </div>
   </div>
 
@@ -42,12 +47,14 @@
     <span id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl01_colPrescriptionFullNo">RX-OPAQUE-002</span>
     <span id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl01_colPrescriperName">Dr Sample</span>
     <span id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl01_colPrescriptionType">כרוני</span>
-    <div id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl01_rptMedicine_ctl00_pnlMedicalDetails"
-         data-prescription="opaqueRx2"
-         data-medicineId="opaqueMed3"
-         data-medicineFormName="TAB"
-         data-medicineStartDate="15/02/2025zz">
+    <div id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl01_rptMedicine_ctl00">
       <span id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl01_rptMedicine_ctl00_colMedicineName">Example Drug Gamma</span>
+      <div id="ctl00_ctl00_cphBody_bodyContent_rptPatientPrescriptions_ctl01_rptMedicine_ctl00_pnlMedicalDetails"
+           data-prescription="opaqueRx2"
+           data-medicineId="opaqueMed3"
+           data-medicineFormName="TAB"
+           data-medicineStartDate="15/02/2025;">
+      </div>
     </div>
   </div>
 </form>

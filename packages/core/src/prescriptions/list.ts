@@ -12,6 +12,47 @@ function attrOpaque(value: string | undefined): string | undefined {
   return v || undefined;
 }
 
+/** Portal often appends a trailing ";" on data-medicineStartDate — strip it. */
+function cleanPortalDate(value: string | undefined): string | undefined {
+  const v = (value ?? "").trim().replace(/;+\s*$/g, "").trim();
+  return v || undefined;
+}
+
+/**
+ * Medicine display name lives under colMedicineName. Live HTML often places that
+ * control as a sibling of the data-* panel (pnlMedicalDetails), not a descendant.
+ */
+function extractMedicineDisplayName(
+  $: cheerio.CheerioAPI,
+  node: ReturnType<typeof $>,
+): string | undefined {
+  const from = (scope: ReturnType<typeof $>) =>
+    cleanText(scope.find("[id*='colMedicineName'], [id*='MedicineName']").first().text());
+
+  const direct = from(node);
+  if (direct) return direct;
+
+  // Prefer the nearest rptMedicine_ctlNN ancestor (exclude deeper nesting noise).
+  const medicineRoot = node
+    .parents("[id*='rptMedicine_ctl']")
+    .filter((_, el) => {
+      const id = $(el).attr("id") ?? "";
+      return /rptMedicine_ctl\d+/i.test(id);
+    })
+    .first();
+  if (medicineRoot.length) {
+    const named = from(medicineRoot);
+    if (named) return named;
+  }
+
+  const parent = node.parent();
+  if (parent.length) {
+    const named = from(parent);
+    if (named) return named;
+  }
+  return undefined;
+}
+
 /**
  * Parse PatientPrescriptionsex.aspx HTML into own prescription rows.
  * Uses rptPatientPrescriptions → nested rptMedicine with data-* attrs only.
@@ -49,15 +90,14 @@ export function parsePrescriptionsListHtml(html: string): PrescriptionListItem[]
     const medicineFormName =
       attrOpaque(node.attr("data-medicineFormName")) ??
       attrOpaque(node.attr("data-medicineformname"));
-    const medicineStartDate =
+    const medicineStartDate = cleanPortalDate(
       attrOpaque(node.attr("data-medicineStartDate")) ??
-      attrOpaque(node.attr("data-medicinestartdate"));
+        attrOpaque(node.attr("data-medicinestartdate")),
+    );
 
     if (!prescriptionNo || !medicineId || !medicineFormName || !medicineStartDate) continue;
 
-    const localName = cleanText(
-      node.find("[id*='colMedicineName'], [id*='MedicineName']").first().text(),
-    );
+    const localName = extractMedicineDisplayName($, node);
 
     const medicine: PrescriptionMedicine = {
       medicineId,
