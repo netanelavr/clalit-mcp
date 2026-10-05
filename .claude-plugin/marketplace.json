@@ -1,0 +1,18 @@
+{
+  "name": "clalit-mcp",
+  "owner": {
+    "name": "Netanel Avraham",
+    "url": "https://github.com/netanelavr"
+  },
+  "description": "Read your own Clalit Health Services records.",
+  "plugins": [
+    {
+      "name": "clalit-mcp",
+      "source": "./",
+      "description": "Read the user's own Clalit records with the clalit-mcp CLI from a checkout.",
+      "version": "0.1.0",
+      "strict": false,
+      "skills": ["./skills/clalit-mcp"]
+    }
+  ]
+}
