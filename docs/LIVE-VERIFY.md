@@ -44,6 +44,6 @@ Datacenter and cloud IPs typically cannot complete Clalit login (Imperva Error 1
 If you capture a new HAR for מרשמים / הפניות:
 
 - Redact cookies, tokens, IDs, phone numbers, clinical values
-- Keep only path + field **names** (like `docs/research/redacted-endpoint-map.json`)
+- Keep only path + field **names** (update [API-SOURCES.md](API-SOURCES.md) if you extract a map)
 - Delete the raw HAR from disk after extracting the map
 - Never commit `*.har`

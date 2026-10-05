@@ -116,7 +116,7 @@ packages/
 
 User-facing surfaces are the **CLI** and **MCP server**. `@clalit/core` stays a private workspace package (not a published SDK).
 
-Upstream surface is **ASP.NET WebForms HTML** (`__VIEWSTATE` / `__EVENTVALIDATION` / `__doPostBack`), not a public JSON API. Evidence: [docs/API-SOURCES.md](docs/API-SOURCES.md) and the [redacted endpoint map](docs/research/redacted-endpoint-map.json).
+Upstream surface is **ASP.NET WebForms HTML** (`__VIEWSTATE` / `__EVENTVALIDATION` / `__doPostBack`), not a public JSON API. Provenance: [docs/API-SOURCES.md](docs/API-SOURCES.md).
 
 ## Roadmap
 

@@ -1,20 +1,10 @@
 # Contributing
 
-## Hygiene
-
-- Never commit HAR files, cookies, session exports, ID numbers, or real lab PDFs.
-- Prefer sanitized HTML fixtures under `packages/core/test/fixtures/`.
-- Do **not** invent endpoints beyond the redacted HAR / HTML evidence maps. Add fetchers only with a redacted map entry and fixtures.
-- Do not add prescription/referral fetchers without a redacted HAR map entry and fixtures.
-
-## Dev
+Never commit HAR files, cookies, session exports, ID numbers, or real lab PDFs. Prefer sanitized HTML fixtures under `packages/core/test/fixtures/`. Do not invent portal endpoints — extend only what [API sources](docs/API-SOURCES.md) documents, with matching fixtures.
 
 ```sh
 npm install
-npm test
-npm run typecheck
+npm run check
 ```
 
-## Scope
-
-Match the existing private-core → CLI → MCP layout (do not document `@clalit/core` as a public SDK). Keep errors free of upstream URLs and response bodies.
+Keep the private-core → CLI → MCP layout. Do not document `@clalit/core` as a public SDK.
