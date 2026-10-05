@@ -6,6 +6,7 @@ export * from "./constants.js";
 export * from "./errors.js";
 export * from "./labs/index.js";
 export * from "./prescriptions/index.js";
+export * from "./lab-orders/index.js";
 export * from "./readers.js";
 export * from "./session.js";
 export * from "./transport.js";

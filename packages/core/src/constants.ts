@@ -16,6 +16,8 @@ export const PATHS = {
   labDetail: "/OnlineWeb/Services/Labs/LabTestDetails.aspx",
   prescriptionsList: "/OnlineWeb/Services/Medicine/PatientPrescriptionsex.aspx",
   prescriptionIssueStatus: "/onlineweb/api/PatientPrescriptions/IssueDrugsByPatientReceiptId",
+  labOrdersList: "/OnlineWeb/Services/LabOrders/LabOrderList.aspx",
+  labOrderDetail: "/OnlineWeb/Services/LabOrders/LabOrderDetails.aspx",
   refreshSession: "/OnlineWeb/ServicesForAll/RefreshSession.aspx",
 } as const;
 
@@ -37,6 +39,9 @@ export const PRESCRIPTIONS_LIST_FIELDS = {
 
 /** Lab detail opaque query param names (values from list links only). */
 export const LAB_DETAIL_PARAMS = ["s", "d", "ls"] as const;
+
+/** Lab-order detail opaque query param name (value from list lnkOrderDetails only). */
+export const LAB_ORDER_DETAIL_PARAMS = ["ord"] as const;
 
 /** Default soft idle TTL: 30 minutes. Longer idle → expect re-login. */
 export const DEFAULT_IDLE_TTL_MS = 30 * 60_000;

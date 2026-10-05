@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head><title>הפניות - פרטים והנחיות</title></head>
+<body>
+<form method="post" action="./LabOrderDetails.aspx?ord=opaqueOrdToken1" id="aspnetForm">
+  <input type="hidden" name="__VIEWSTATE" value="/wEPDwUKLTEsZg9kFgICAQ9kFgIC" />
+  <input type="hidden" name="__VIEWSTATEGENERATOR" value="LODET1" />
+  <input type="hidden" name="__EVENTVALIDATION" value="/wEdAAJBBB" />
+  <input type="hidden" name="ctl00$ctl00$cphBody$bodyContent$hdnLabOrderID"
+         id="ctl00_ctl00_cphBody_bodyContent_hdnLabOrderID" value="opaqueLabOrderId1" />
+  <h1>הפניות - פרטים והנחיות</h1>
+  <div>בתוקף מ 10/03/2025 בתוקף עד 10/06/2025</div>
+  <div>הנחיות לקראת הבדיקות — דוגמה בלבד, לא נתונים רפואיים אמיתיים.</div>
+  <table id="ctl00_ctl00_cphBody_bodyContent_gvLabOrdersItem">
+    <tr><th>LabSecName</th><th>LabTestName</th><th></th></tr>
+    <tr>
+      <td><span id="ctl00_ctl00_cphBody_bodyContent_gvLabOrdersItem_ctl02_dcLabSection">דם</span></td>
+      <td><span id="ctl00_ctl00_cphBody_bodyContent_gvLabOrdersItem_ctl02_dcTestName">ספירת דם כללית</span></td>
+      <td>
+        <a id="ctl00_ctl00_cphBody_bodyContent_gvLabOrdersItem_ctl02_lnkOpenDesc" href="#">פרטים</a>
+        <span id="ctl00_ctl00_cphBody_bodyContent_gvLabOrdersItem_ctl02_dbMoreInfo"></span>
+      </td>
+    </tr>
+    <tr>
+      <td><span id="ctl00_ctl00_cphBody_bodyContent_gvLabOrdersItem_ctl03_dcLabSection">דם</span></td>
+      <td><span id="ctl00_ctl00_cphBody_bodyContent_gvLabOrdersItem_ctl03_dcTestName">כימיה בדם</span></td>
+      <td></td>
+    </tr>
+  </table>
+  <!-- Print/download UI present but not fetched -->
+  <div id="dialogPrint" class="LabOrderDownloadDoc LabOrderSendEmail" style="display:none"></div>
+  <a href="/OnlineWeb/Services/LabOrders/LabOrderList.aspx">חזרה לרשימה</a>
+</form>
+</body>
+</html>

@@ -1,3 +1,10 @@
-# Referrals (הפניות) — roadmap
+# Referrals (הפניות) — status
 
-No endpoints implemented. Wait for a redacted HAR map entry naming list/detail/document paths and field names, plus sanitized HTML fixtures. Do not guess URLs.
+**LabOrders** (הפניות לבדיקות מעבדה) live under `packages/core/src/lab-orders/` — not here.
+
+| Surface | Status |
+| --- | --- |
+| LabOrderList / LabOrderDetails | Implemented in `lab-orders/` |
+| LabOrder print / PDF / email download | **Out** — UI present in HTML, not fetched |
+| `MedicalReferrals.aspx` (general הפניות) | **Still blocked** — nav-only in HAR; do not invent |
+| Rentgen / other sibling nav | Out |

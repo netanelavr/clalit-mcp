@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head><title>הפניות לבדיקות מעבדה</title></head>
+<body>
+<form method="post" action="./LabOrderList.aspx" id="aspnetForm">
+  <input type="hidden" name="__VIEWSTATE" value="/wEPDwUKLTEsAgEPZBYCAgMPZBYCZg9kFgICAQ9kFgICAQ8QZGQWAh4Hb25jbGljawUWY2xlYXJUaW1lb3V0KCk7ZGRk" />
+  <input type="hidden" name="__VIEWSTATEGENERATOR" value="LOLIST1" />
+  <input type="hidden" name="__EVENTVALIDATION" value="/wEdAAILO" />
+  <!-- Family slider chrome — never post au/cu -->
+  <input type="hidden" name="ctl00$ctl00$cphTopMenuRight$FamilySliderControl21$au" value="" />
+  <input type="hidden" name="ctl00$ctl00$cphTopMenuRight$FamilySliderControl21$cu" value="" />
+  <!-- Empty-state class may appear alongside rows -->
+  <div class="NoLabOrdersFound" style="display:none"></div>
+  <div id="divLabOrders">
+    <table id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList">
+      <tr>
+        <th>OrderIssuanceDate</th><th>Referer</th><th>ValidTo</th><th>Section</th><th></th>
+      </tr>
+      <tr>
+        <td><span id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl02_dcOrderIssuanceDate">10/03/2025</span></td>
+        <td><span id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl02_dcReferer">Clinic Example</span></td>
+        <td><span id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl02_txtValidTo">10/06/2025</span></td>
+        <td><span id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl02_dcLabSectionList">דם</span></td>
+        <td>
+          <a id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl02_lnkOrderDetails"
+             href="/OnlineWeb/Services/LabOrders/LabOrderDetails.aspx?ord=opaqueOrdToken1">פרטים</a>
+          <a id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl02_lnkZimun" href="#">זימון</a>
+        </td>
+      </tr>
+      <tr>
+        <td><span id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl03_dcOrderIssuanceDate">01/02/2025</span></td>
+        <td><span id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl03_dcReferer">Lab Desk</span></td>
+        <td><span id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl03_txtValidTo">01/05/2025</span></td>
+        <td><span id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl03_dcLabSectionList">שתן</span></td>
+        <td>
+          <a id="ctl00_ctl00_cphBody_bodyContent_LabOrderList_gvLabOrdersList_ctl03_lnkOrderDetails"
+             href="/OnlineWeb/Services/LabOrders/LabOrderDetails.aspx?ord=opaqueOrdToken2">פרטים</a>
+        </td>
+      </tr>
+    </table>
+  </div>
+</form>
+</body>
+</html>
