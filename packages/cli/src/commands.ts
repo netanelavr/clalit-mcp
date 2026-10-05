@@ -50,7 +50,7 @@ export const COMMANDS: Record<string, Command> = {
     summary: "List own prescriptions (מרשמים).",
     description: "Reads PatientPrescriptionsex.aspx for the authenticated owner only.",
     options: ["from", "to", "include-expired", "json"],
-    notes: "No PDF/print. Never switches family members.",
+    notes: "No PDF/print. listPrescriptions walks every gridPager page. Never switches family members.",
   },
   "prescription-status": {
     usage:

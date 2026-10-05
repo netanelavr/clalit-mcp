@@ -4,6 +4,7 @@ import {
   PATHS,
   PORTAL_ORIGIN,
   PRESCRIPTIONS_LIST_FIELDS,
+  PRESCRIPTIONS_LIST_MAX_PAGES,
 } from "./constants.js";
 import { OwnerScopeError, ParseError, UpstreamError } from "./errors.js";
 import {
@@ -30,7 +31,9 @@ import {
 } from "./labs/index.js";
 import {
   buildIssueDrugsRequestBody,
+  currentPrescriptionPagerPage,
   extractPrescriptionSectionId,
+  nextPrescriptionPagerPage,
   parseIssueDrugsResponse,
   parsePrescriptionsListHtml,
   type ListPrescriptionsOptions,
@@ -120,7 +123,7 @@ export class ClalitReaders {
 
   /**
    * listLabs — GET LabsTestList.aspx, optional date filter via btnGetTestsAcc,
-   * then walk PagerLink-N until the last page (HAR: ~5 rows/page).
+   * then walk PagerLink-N until the last page (~5 rows/page).
    */
   async listLabs(options: ListLabsOptions = {}): Promise<ListedLab[]> {
     this.transport.assertNotIdleExpired();
@@ -193,7 +196,7 @@ export class ClalitReaders {
     const html = await readText(response);
     if (/FamilySliderControl\d+\$au/i.test(html) && /selected|switch/i.test(html)) {
       // Soft guard: if page indicates a non-self member context, fail closed.
-      // Without a stable owner-id field name (not in HAR), we rely on list-only refs.
+      // Without a stable owner-id field name, we rely on list-only refs.
     }
     return parseLabDetailHtml(html, ref);
   }
@@ -229,32 +232,68 @@ export class ClalitReaders {
     return buildLabDocument(ref, bytes, ct, post.headers.get("content-disposition"));
   }
 
-  /** listPrescriptions — GET PatientPrescriptionsex.aspx (optional date filter). */
+  /**
+   * listPrescriptions — GET PatientPrescriptionsex.aspx (optional date filter),
+   * then walk gridPager via __EVENTARGUMENT until the last page.
+   */
   async listPrescriptions(options: ListPrescriptionsOptions = {}): Promise<PrescriptionListItem[]> {
     this.transport.assertNotIdleExpired();
     const listUrl = PORTAL_ORIGIN + PATHS.prescriptionsList;
     let response = await this.transport.request(listUrl);
     let html = await readText(response);
 
-    if (options.fromDate || options.toDate || options.includeExpired) {
+    const optionFields: Record<string, string> = {};
+    if (options.fromDate) optionFields[PRESCRIPTIONS_LIST_FIELDS.fromDate] = options.fromDate;
+    if (options.toDate) optionFields[PRESCRIPTIONS_LIST_FIELDS.toDate] = options.toDate;
+    if (options.includeExpired) optionFields[PRESCRIPTIONS_LIST_FIELDS.includeExpired] = "on";
+
+    if (Object.keys(optionFields).length > 0) {
       const state = extractWebFormsState(html);
-      const fields: Record<string, string> = {};
-      if (options.fromDate) fields[PRESCRIPTIONS_LIST_FIELDS.fromDate] = options.fromDate;
-      if (options.toDate) fields[PRESCRIPTIONS_LIST_FIELDS.toDate] = options.toDate;
-      if (options.includeExpired) fields[PRESCRIPTIONS_LIST_FIELDS.includeExpired] = "on";
+      const cleanState = { ...state, hidden: omitFamilySliderFields(state.hidden) };
       response = await this.transport.request(listUrl, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: buildPostBackBody(state, fields),
+        body: buildPostBackBody(cleanState, optionFields),
       });
       html = await readText(response);
     }
 
-    if (/FamilySliderControl\d+\$au|FamilySliderControl\d+\$cu/i.test(html)) {
-      // Presence OK; never POST au/cu.
+    const byPrescriptionNo = new Map<string, PrescriptionListItem>();
+    let currentPage = currentPrescriptionPagerPage(html);
+    let pagesFetched = 0;
+
+    while (true) {
+      pagesFetched += 1;
+      for (const item of parsePrescriptionsListHtml(html)) {
+        if (byPrescriptionNo.has(item.prescriptionNo)) continue;
+        byPrescriptionNo.set(item.prescriptionNo, item);
+      }
+
+      if (pagesFetched >= PRESCRIPTIONS_LIST_MAX_PAGES) break;
+      const nextPage = nextPrescriptionPagerPage(html, currentPage);
+      if (nextPage === undefined) break;
+
+      const state = extractWebFormsState(html);
+      const cleanState = { ...state, hidden: omitFamilySliderFields(state.hidden) };
+      const fields = {
+        ...optionFields,
+        [PRESCRIPTIONS_LIST_FIELDS.hiddenPager]: String(nextPage),
+      };
+      response = await this.transport.request(listUrl, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: buildPostBackBody(
+          cleanState,
+          fields,
+          PRESCRIPTIONS_LIST_FIELDS.gridPager,
+          String(nextPage),
+        ),
+      });
+      html = await readText(response);
+      currentPage = nextPage;
     }
 
-    return parsePrescriptionsListHtml(html);
+    return [...byPrescriptionNo.values()];
   }
 
   /**

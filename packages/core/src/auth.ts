@@ -473,7 +473,7 @@ export class ClalitAuth {
     } catch {
       /* diagnostic only */
     }
-    // OTP POST + portal hops (successful HAR: 302 → PersonalDetails.aspx, not Login).
+    // OTP POST + portal hops (successful path: 302 → PersonalDetails.aspx, not Login).
     // Follow Set-Cookie / document.cookie into the jar before export.
     const hops = await this.#completePortalSessionAfterOtp(verified, otpUrl);
 
@@ -487,7 +487,7 @@ export class ClalitAuth {
 
   /**
    * After OTPSMSVerification succeeds, follow Location / Object-moved / JS redirects,
-   * mirror setCookie(...) into the jar. Successful live HAR (2026-09): 302 →
+   * mirror setCookie(...) into the jar. Successful live path: 302 →
    * PersonalDetails.aspx (not Login). Cold-GET Login.aspx only when portal auth
    * cookies exist and neither Login nor PersonalDetails was already hit —
    * otherwise Login.aspx is anonymous (.ONLINEAUTH only; labs still 302s).

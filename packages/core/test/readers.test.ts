@@ -306,3 +306,82 @@ describe("ClalitReaders listLabs pagination", () => {
     expect(labs.map((l) => l.name)).toEqual(["Jan", "Feb"]);
   });
 });
+
+describe("ClalitReaders listPrescriptions pagination", () => {
+  function rxPage(opts: {
+    rx: Array<{ no: string; med: string; form: string; start: string; name: string }>;
+    page: number;
+    pages: number[];
+    viewState: string;
+  }): string {
+    const rows = opts.rx
+      .map(
+        (r, i) => `
+      <div id="rptMedicine_ctl0${i}">
+        <span id="colMedicineName">שם התרופה:</span><a id="colMedicineLink" href="#">${r.name}</a>
+        <div data-prescription="${r.no}" data-medicineId="${r.med}" data-medicineFormName="${r.form}" data-medicineStartDate="${r.start}">
+        </div>
+      </div>`,
+      )
+      .join("");
+    const links = opts.pages
+      .map((n) =>
+        n === opts.page
+          ? `<span class="PagerDisabled ActivePage PagerNumberLink">${n}</span>`
+          : `<a class="PagerLink PagerNumberLink" href="/OnlineWeb/Services/Medicine/PatientPrescriptionsex.aspx?page=${n}" onclick="__doPostBack('ctl00$ctl00$cphBody$bodyContent$gridPager','${n}');return false;">${n}</a>`,
+      )
+      .join(" ");
+    return `<html><body><form>
+      <input type="hidden" name="__VIEWSTATE" value="${opts.viewState}" />
+      <input type="hidden" name="__VIEWSTATEGENERATOR" value="gen" />
+      <input type="hidden" name="__EVENTVALIDATION" value="ev" />
+      <input type="hidden" name="ctl00$ctl00$cphTopMenuRight$FamilySliderControl21$au" value="FAMILY_AU" />
+      <input type="hidden" name="ctl00$ctl00$cphBody$bodyContent$gridPager$hiddenPager" value="${opts.page}" />
+      <input type="hidden" name="ctl00$ctl00$cphBody$bodyContent$hdnSectionID" value="42" />
+      ${rows}
+      <div class="OnlinePagerContainer">${links}</div>
+    </form></body></html>`;
+  }
+
+  test("walks gridPager with EVENTARGUMENT and skips family-slider fields", async () => {
+    const bodies: string[] = [];
+    const transport = {
+      assertNotIdleExpired(): void {},
+      async request(input: string | URL, init?: RequestInit): Promise<Response> {
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "GET") {
+          return new Response(
+            rxPage({
+              rx: [{ no: "rx1", med: "m1", form: "TAB", start: "01/01/2025", name: "Alpha" }],
+              page: 1,
+              pages: [1, 2],
+              viewState: "vs1",
+            }),
+            { status: 200, headers: { "content-type": "text/html" } },
+          );
+        }
+        const body = String(init?.body ?? "");
+        bodies.push(body);
+        expect(body).not.toContain("FAMILY_AU");
+        const params = new URLSearchParams(body);
+        expect(params.get("__EVENTTARGET")).toBe("ctl00$ctl00$cphBody$bodyContent$gridPager");
+        expect(params.get("__EVENTARGUMENT")).toBe("2");
+        expect(params.get("ctl00$ctl00$cphBody$bodyContent$gridPager$hiddenPager")).toBe("2");
+        expect(params.get("__VIEWSTATE")).toBe("vs1");
+        return new Response(
+          rxPage({
+            rx: [{ no: "rx2", med: "m2", form: "CAP", start: "02/02/2025", name: "Beta" }],
+            page: 2,
+            pages: [1, 2],
+            viewState: "vs2",
+          }),
+          { status: 200, headers: { "content-type": "text/html" } },
+        );
+      },
+    } as unknown as ClalitTransport;
+
+    const items = await new ClalitReaders(transport).listPrescriptions();
+    expect(items.map((i) => i.prescriptionNo)).toEqual(["rx1", "rx2"]);
+    expect(bodies).toHaveLength(1);
+  });
+});

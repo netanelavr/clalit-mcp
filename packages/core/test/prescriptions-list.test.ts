@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { ReauthenticationRequired } from "../src/errors.js";
 import {
+  currentPrescriptionPagerPage,
   extractPrescriptionSectionId,
+  listVisiblePrescriptionPagerPages,
+  nextPrescriptionPagerPage,
   parsePrescriptionsListHtml,
 } from "../src/prescriptions/list.js";
 import {
@@ -113,5 +116,32 @@ describe("IssueDrugs helpers", () => {
         sectionId: "1",
       }),
     ).toThrow();
+  });
+});
+
+describe("prescriptions gridPager helpers", () => {
+  const page2Html = `<div class="OnlinePagerContainer">
+    <input type="hidden" name="ctl00$ctl00$cphBody$bodyContent$gridPager$hiddenPager" id="ctl00_ctl00_cphBody_bodyContent_gridPager_hiddenPager" value="2" />
+    <a class="PagerLink NextPrevLink" href="/OnlineWeb/Services/Medicine/PatientPrescriptionsex.aspx?a=1&page=1" onclick="document.getElementById('ctl00_ctl00_cphBody_bodyContent_gridPager_hiddenPager').value='1'; __doPostBack('ctl00$ctl00$cphBody$bodyContent$gridPager','1');return false;">הקודם</a>
+    <a class="PagerLink PagerNumberLink" href="/OnlineWeb/Services/Medicine/PatientPrescriptionsex.aspx?a=1&page=1" title="1" onclick="__doPostBack('ctl00$ctl00$cphBody$bodyContent$gridPager','1');return false;">1</a>
+    <span class="PagerDisabled ActivePage PagerNumberLink">2</span>
+    <span class="PagerDisabled NextPrevLink">הבא</span>
+  </div>`;
+
+  const page1Html = `<div class="OnlinePagerContainer">
+    <input type="hidden" name="ctl00$ctl00$cphBody$bodyContent$gridPager$hiddenPager" value="1" />
+    <span class="PagerDisabled ActivePage PagerNumberLink">1</span>
+    <a class="PagerLink PagerNumberLink" href="/OnlineWeb/Services/Medicine/PatientPrescriptionsex.aspx?a=1&page=2" title="2" onclick="__doPostBack('ctl00$ctl00$cphBody$bodyContent$gridPager','2');return false;">2</a>
+    <a class="PagerLink NextPrevLink" href="/OnlineWeb/Services/Medicine/PatientPrescriptionsex.aspx?a=1&page=2" onclick="document.getElementById('ctl00_ctl00_cphBody_bodyContent_gridPager_hiddenPager').value='2'; __doPostBack('ctl00$ctl00$cphBody$bodyContent$gridPager','2');return false;">הבא</a>
+  </div>`;
+
+  test("reads current page and next from gridPager markup", () => {
+    expect(currentPrescriptionPagerPage(page2Html)).toBe(2);
+    expect(listVisiblePrescriptionPagerPages(page2Html)).toEqual([1, 2]);
+    expect(nextPrescriptionPagerPage(page2Html, 2)).toBeUndefined();
+
+    expect(currentPrescriptionPagerPage(page1Html)).toBe(1);
+    expect(listVisiblePrescriptionPagerPages(page1Html)).toEqual([1, 2]);
+    expect(nextPrescriptionPagerPage(page1Html, 1)).toBe(2);
   });
 });

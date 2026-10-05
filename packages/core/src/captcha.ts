@@ -189,7 +189,7 @@ export function extractOtpEventTarget(pageHtml: string): string | undefined {
   if (idMatch?.[1] && !/Voice/i.test(idMatch[1])) {
     return idMatch[1].replace(/_/g, "$");
   }
-  // Successful manual HAR (2026-09): this LinkButton. Prefer it over empty
+  // Observed successful login: this LinkButton. Prefer it over empty
   // __EVENTTARGET which redisplays OTPSMSVerification with HTTP 200.
   if (
     /txtClientOTP|OTPSMSVerification/i.test(pageHtml) ||

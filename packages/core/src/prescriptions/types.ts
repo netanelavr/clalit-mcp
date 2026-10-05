@@ -42,7 +42,7 @@ export interface PrescriptionIssueStatusRequest {
   medicationFormName: string;
   medicationStartDate: string;
   sectionId: string;
-  /** Observed empty in HAR; pass "" when unknown. */
+  /** Observed empty on the portal; pass "" when unknown. */
   currStatusValue?: string;
 }
 

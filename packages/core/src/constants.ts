@@ -21,7 +21,7 @@ export const PATHS = {
   refreshSession: "/OnlineWeb/ServicesForAll/RefreshSession.aspx",
 } as const;
 
-/** WebForms field names observed for labs list date filter + pager (HAR Oct 2026). */
+/** WebForms field names for labs list date filter + pager. */
 export const LABS_LIST_FIELDS = {
   fromDate: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtFromDate",
   toDate: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtToDate",
@@ -40,13 +40,19 @@ export const LABS_DATE_FORMAT_HINT = "dd.MM.yyyy";
 export const LABS_LIST_MAX_PAGES = 40;
 
 
-/** WebForms field names observed for prescriptions list date/filter. */
+/** WebForms field names for prescriptions list date/filter + pager. */
 export const PRESCRIPTIONS_LIST_FIELDS = {
   fromDate: "ctl00$ctl00$cphBody$bodyContent$dateRange$txtFromDate",
   toDate: "ctl00$ctl00$cphBody$bodyContent$dateRange$txtToDate",
   includeExpired: "ctl00$ctl00$cphBody$bodyContent$chkIncludeExpiredPrescriptions",
   sectionId: "ctl00$ctl00$cphBody$bodyContent$hdnSectionID",
+  /** ASP.NET pager control; page N is posted as __EVENTARGUMENT with this __EVENTTARGET. */
+  gridPager: "ctl00$ctl00$cphBody$bodyContent$gridPager",
+  hiddenPager: "ctl00$ctl00$cphBody$bodyContent$gridPager$hiddenPager",
 } as const;
+
+/** Safety cap for prescriptions list pager walks. */
+export const PRESCRIPTIONS_LIST_MAX_PAGES = 40;
 
 /** Lab detail opaque query param names (values from list links only). */
 export const LAB_DETAIL_PARAMS = ["s", "d", "ls"] as const;

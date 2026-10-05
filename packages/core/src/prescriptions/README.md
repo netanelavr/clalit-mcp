@@ -1,6 +1,6 @@
 # Prescriptions (מרשמים)
 
-Implemented read surfaces (HAR-backed):
+Implemented read surfaces:
 
 | Role | Method | Path |
 | --- | --- | --- |

@@ -3,6 +3,57 @@ import { ParseError, ReauthenticationRequired } from "../errors.js";
 import { looksLikeLoginPage, looksLikePrescriptionsListChrome } from "../webforms.js";
 import type { PrescriptionListItem, PrescriptionMedicine } from "./types.js";
 
+
+/** Current page from hiddenPager / ActivePage (OnlinePagerContainer). */
+export function currentPrescriptionPagerPage(html: string): number {
+  const hidden =
+    html.match(
+      /name="ctl00\$ctl00\$cphBody\$bodyContent\$gridPager\$hiddenPager"[^>]*value="(\d+)"/i,
+    ) ??
+    html.match(
+      /value="(\d+)"[^>]*name="ctl00\$ctl00\$cphBody\$bodyContent\$gridPager\$hiddenPager"/i,
+    );
+  if (hidden?.[1]) return Number(hidden[1]);
+  const active = html.match(/class=['"][^'"]*ActivePage[^'"]*['"][^>]*>\s*(\d+)\s*</i);
+  if (active?.[1]) return Number(active[1]);
+  return 1;
+}
+
+/** Page numbers offered by PatientPrescriptionsex gridPager controls. */
+export function listVisiblePrescriptionPagerPages(html: string): number[] {
+  const pages = new Set<number>();
+  pages.add(currentPrescriptionPagerPage(html));
+  for (const match of html.matchAll(
+    /__doPostBack\(\s*['"]ctl00\$ctl00\$cphBody\$bodyContent\$gridPager['"]\s*,\s*['"](\d+)['"]\s*\)/g,
+  )) {
+    pages.add(Number(match[1]));
+  }
+  for (const match of html.matchAll(
+    /__doPostBack\(&#39;ctl00\$ctl00\$cphBody\$bodyContent\$gridPager&#39;\s*,\s*&#39;(\d+)&#39;\)/g,
+  )) {
+    pages.add(Number(match[1]));
+  }
+  for (const match of html.matchAll(
+    /PatientPrescriptionsex\.aspx[^"'\s>]*[?&]page=(\d+)/gi,
+  )) {
+    pages.add(Number(match[1]));
+  }
+  for (const match of html.matchAll(
+    /class=['"][^'"]*PagerNumberLink[^'"]*['"][^>]*>\s*(\d+)\s*</gi,
+  )) {
+    pages.add(Number(match[1]));
+  }
+  return [...pages].sort((a, b) => a - b);
+}
+
+/** Next pager page after `currentPage`, or undefined when this is the last page. */
+export function nextPrescriptionPagerPage(
+  html: string,
+  currentPage: number,
+): number | undefined {
+  return listVisiblePrescriptionPagerPages(html).find((page) => page > currentPage);
+}
+
 function cleanText(raw: string): string {
   return raw.replace(/\s+/g, " ").trim();
 }

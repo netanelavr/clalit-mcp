@@ -1075,7 +1075,7 @@ describe("post-OTP hop patterns", () => {
     expect(names).toContain("AfterLogin");
   });
 
-  test("successful OTP 302 → PersonalDetails.aspx (live HAR) — no cold Login", async () => {
+  test("successful OTP 302 → PersonalDetails.aspx — no cold Login", async () => {
     const dumpDir = mkdtempSync(join(tmpdir(), "clalit-hops-"));
     process.env.CLALIT_CONFIG_DIR = dumpDir;
     const requested: string[] = [];

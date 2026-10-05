@@ -6,5 +6,5 @@
 | --- | --- |
 | LabOrderList / LabOrderDetails | Implemented in `lab-orders/` |
 | LabOrder print / PDF / email download | **Out** — UI present in HTML, not fetched |
-| `MedicalReferrals.aspx` (general הפניות) | **Still blocked** — nav-only in HAR; do not invent |
+| `MedicalReferrals.aspx` (general הפניות) | **Still blocked** — nav-only in capture; do not invent |
 | Rentgen / other sibling nav | Out |
