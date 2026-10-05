@@ -1350,24 +1350,32 @@ describe("OTP failure diagnostics (redacted, one-attempt)", () => {
     expect(all).not.toContain("ts-fixture");
   });
 
-  test("OTP posted from a Login.aspx page state (live shape) → otp_source_not_otp_form", async () => {
+  test("HasOTP → Login.aspx mentioning OTPSMSVerification (no input) GETs real OTP before POST", async () => {
     const dumpDir = mkdtempSync(join(tmpdir(), "clalit-diag-"));
     process.env.CLALIT_CONFIG_DIR = dumpDir;
-    // Captcha-accepted HasOTP redirect → Login.aspx whose HTML only *mentions*
-    // OTPSMSVerification (no SMS input) — what the 2026-10-05 live dump suggests.
+    // Live 2026-10-05 shape: captcha success → Login.aspx HTML only *mentions*
+    // OTPSMSVerification (no SMS input). Must GET OTPSMSVerification.aspx and build
+    // the OTP POST from that page — never from Login.aspx ViewState.
     const hasOtpHtml = `${loginHtml}<script>setCookie('HasOTP', '-otp-sms', 90);redirectInfoToOnline('/OnlineWeb/General/Login.aspx');</script>`;
     const loginWithOtpMention = loginHtml.replace(
       "</form>",
       `<input type="hidden" name="__PREVIOUSPAGE" value="pp" /><script>var otpUrl='/OnlineWeb/General/OTPSMSVerification.aspx';</script></form>`,
     );
+    const calls: string[] = [];
+    let otpPostBody = "";
     const base = portalMock({
       captchaPost: () => htmlResponse(hasOtpHtml),
       otpPost: () => htmlResponse(wrongCodeHtml),
     });
     const fetchMock: typeof fetch = async (input, init) => {
       const url = String(input);
-      if (/\/OnlineWeb\/General\/Login\.aspx$/i.test(url) && (init?.method ?? "GET") === "GET") {
+      const method = init?.method ?? "GET";
+      calls.push(`${method} ${new URL(url).pathname}`);
+      if (/\/OnlineWeb\/General\/Login\.aspx$/i.test(url) && method === "GET") {
         return htmlResponse(loginWithOtpMention);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "POST") {
+        otpPostBody = String(init?.body ?? "");
       }
       return base(input, init);
     };
@@ -1381,26 +1389,162 @@ describe("OTP failure diagnostics (redacted, one-attempt)", () => {
         (err: unknown) => err,
       )) as AuthenticationError;
     expect(thrown.code).toBe("OTP_SESSION_INCOMPLETE");
-    expect(thrown.diagnostics?.why).toBe("otp_source_not_otp_form");
-    expect(thrown.diagnostics?.signals).toEqual(
+    // Must have GETted the real OTP page after Login.aspx chrome.
+    expect(calls).toEqual(
       expect.arrayContaining([
-        "source_page_without_otp_input",
-        "source_page_has_captcha_login_fields",
-        "unexpected_login_keys_in_otp_post",
-        "otp_field_short_name_fallback",
-        "hdnRegExp_missing",
+        `GET ${PATHS.login}`,
+        `GET ${PATHS.otpSms}`,
+        `POST ${PATHS.otpSms}`,
       ]),
     );
+    const otpGetIdx = calls.findIndex((c) => c === `GET ${PATHS.otpSms}`);
+    const otpPostIdx = calls.findIndex((c) => c === `POST ${PATHS.otpSms}`);
+    expect(otpGetIdx).toBeGreaterThanOrEqual(0);
+    expect(otpPostIdx).toBeGreaterThan(otpGetIdx);
+    // POST body must use UniqueID + hdnRegExp from the real OTP page, not Login.aspx keys.
+    expect(otpPostBody).toContain("ctl00%24cphBody%24txtClientOTP");
+    expect(otpPostBody).toContain("ctl00%24cphBody%24hdnRegExp");
+    expect(otpPostBody).not.toContain("__PREVIOUSPAGE");
+    expect(otpPostBody).not.toMatch(/LBD_VCID|tbCaptchaLogin|tbUserId/i);
+    expect(thrown.diagnostics?.why).toBe("otp_redisplayed_with_error");
     const redisplayFile = readdirSync(dumpDir).find((f) => f.startsWith("otp-redisplay-"))!;
     const redisplay = JSON.parse(readFileSync(join(dumpDir, redisplayFile), "utf8"));
     expect(redisplay.otpPost.source).toMatchObject({
-      path: "/OnlineWeb/General/Login.aspx",
-      presence: { txtClientOTP: false, captchaLoginFields: true, previousPageField: true },
+      path: "/OnlineWeb/General/OTPSMSVerification.aspx",
+      pageKind: "otp",
+      presence: { txtClientOTP: true, hdnRegExp: true, btnContinue: true, captchaLoginFields: false },
     });
-    // Whatever target was picked from the wrong page is visible (control id only).
-    expect(typeof redisplay.otpPost.post.eventTarget).toBe("string");
-    expect(redisplay.otpPost.post.missingExpectedKeys).toContain("*hdnRegExp");
     expect(JSON.stringify(redisplay)).not.toContain("555555");
+  });
+
+  test("HasOTP → Login.aspx object_moved (no OTP input) follows/GETs OTP before collecting fields", async () => {
+    const hasOtpHtml = `${loginHtml}<script>setCookie('HasOTP', '-otp-sms', 90);redirectInfoToOnline('/OnlineWeb/General/Login.aspx');</script>`;
+    // Object-moved interstitial on Login.aspx that only mentions OTP in chrome — no txtClientOTP.
+    const objectMovedLogin = `<html><head><title>Object moved</title></head><body>
+<h2>Object moved to <a href="${PATHS.login}">here</a>.</h2>
+<form action="./Login.aspx">
+  <input type="hidden" name="__VIEWSTATE" value="/wEPDwUKLOGIN" />
+  <input type="hidden" name="__PREVIOUSPAGE" value="pp" />
+  <input type="text" name="ctl00$cphBody$tbUserId" />
+  <input type="text" name="ctl00$cphBody$tbCaptchaLogin" />
+  <input type="hidden" name="LBD_VCID_c_general_login_ctl00_cphbody__logincontrol_captchalogin" value="x" />
+</form>
+<script>var otpUrl='/OnlineWeb/General/OTPSMSVerification.aspx';</script>
+</body></html>`;
+    const calls: string[] = [];
+    let otpPostBody = "";
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push(`${method} ${new URL(url).pathname}`);
+      if (url.includes("infootplogin.aspx") && method === "GET") {
+        return responseWithSetCookies(loginHtml, { cookies: DEFENSE_COOKIES });
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "image/png" } });
+      }
+      if (url.includes("infootplogin.aspx") && method === "POST") {
+        return htmlResponse(hasOtpHtml);
+      }
+      if (/\/OnlineWeb\/General\/Login\.aspx/i.test(url) && method === "GET") {
+        // First Login.aspx after HasOTP → object_moved chrome; later hops may differ.
+        if (!calls.some((c) => c.includes("OTPSMSVerification"))) {
+          return htmlResponse(objectMovedLogin);
+        }
+        return htmlResponse("<html><body>portal</body></html>");
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "GET") {
+        return htmlResponse(otpContinueEntitiesHtml);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "POST") {
+        otpPostBody = String(init?.body ?? "");
+        return responseWithSetCookies(null, {
+          status: 302,
+          location: PATHS.login,
+          cookies: [
+            ...DEFENSE_COOKIES,
+            "PostOtpAuth=post-otp; Path=/; HttpOnly",
+            "AfterLogin=1; Path=/",
+          ],
+        });
+      }
+      if (url.includes("LabsTestList.aspx")) {
+        return htmlResponse(LABS_OK_HTML);
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const session = await auth.loginInteractive("123456789", {
+      solveCaptcha: async () => "AB12",
+      readOtp: async () => "654321",
+    });
+    expect(session.version).toBe(1);
+    expect(calls).toEqual(
+      expect.arrayContaining([`GET ${PATHS.login}`, `GET ${PATHS.otpSms}`, `POST ${PATHS.otpSms}`]),
+    );
+    const loginIdx = calls.indexOf(`GET ${PATHS.login}`);
+    const otpGetIdx = calls.indexOf(`GET ${PATHS.otpSms}`);
+    const otpPostIdx = calls.indexOf(`POST ${PATHS.otpSms}`);
+    expect(loginIdx).toBeGreaterThanOrEqual(0);
+    expect(otpGetIdx).toBeGreaterThan(loginIdx);
+    expect(otpPostIdx).toBeGreaterThan(otpGetIdx);
+    expect(otpPostBody).toContain("ctl00%24cphBody%24txtClientOTP=654321");
+    expect(otpPostBody).toContain("ctl00%24cphBody%24hdnRegExp");
+    expect(otpPostBody).not.toContain("__PREVIOUSPAGE");
+    expect(otpPostBody).not.toMatch(/LBD_VCID|tbCaptchaLogin/i);
+  });
+
+  test("HasOTP → Login.aspx without OTP page ever arriving → OTP_PAGE_MISSING (no OTP prompt/POST)", async () => {
+    const hasOtpHtml = `${loginHtml}<script>setCookie('HasOTP', '-otp-sms', 90);redirectInfoToOnline('/OnlineWeb/General/Login.aspx');</script>`;
+    const loginWithOtpMention = loginHtml.replace(
+      "</form>",
+      `<input type="hidden" name="__PREVIOUSPAGE" value="pp" /><script>var otpUrl='/OnlineWeb/General/OTPSMSVerification.aspx';</script></form>`,
+    );
+    let readOtpCalls = 0;
+    let otpPostCalls = 0;
+    const fetchMock: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("infootplogin.aspx") && method === "GET") {
+        return htmlResponse(loginHtml);
+      }
+      if (url.includes("BotDetectCaptcha")) {
+        return new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "image/png" } });
+      }
+      if (url.includes("infootplogin.aspx") && method === "POST") {
+        return htmlResponse(hasOtpHtml);
+      }
+      if (/\/OnlineWeb\/General\/Login\.aspx/i.test(url) && method === "GET") {
+        return htmlResponse(loginWithOtpMention);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "GET") {
+        // Portal never serves the SMS form — fail closed.
+        return htmlResponse(loginWithOtpMention);
+      }
+      if (url.includes("OTPSMSVerification.aspx") && method === "POST") {
+        otpPostCalls += 1;
+        return new Response("should not POST", { status: 500 });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+    const auth = new ClalitAuth(new ClalitTransport({ fetch: fetchMock, minGapMs: 0 }));
+    const thrown = (await auth
+      .loginInteractive("123456789", {
+        solveCaptcha: async () => "AB12",
+        readOtp: async () => {
+          readOtpCalls += 1;
+          return "555555";
+        },
+      })
+      .then(
+        () => {
+          throw new Error("expected OTP_PAGE_MISSING");
+        },
+        (err: unknown) => err,
+      )) as AuthenticationError;
+    expect(thrown.code).toBe("OTP_PAGE_MISSING");
+    expect(readOtpCalls).toBe(0);
+    expect(otpPostCalls).toBe(0);
   });
 
   test("OTP 302 without PostOtpAuth → missing_post_otp_auth with hop kinds", async () => {

@@ -125,7 +125,10 @@ interface OtpPageResult {
 }
 
 function looksLikeOtpPage(html: string): boolean {
-  return /txtClientOTP|OTPSMSVerification/i.test(html);
+  // Require the real SMS-code <input>. Substring "OTPSMSVerification" alone also
+  // matches Login.aspx chrome after HasOTP (live 2026-10-05) and caused OTP POSTs
+  // built from the wrong page ViewState.
+  return otpEntryInputPresent(html);
 }
 
 function looksLikeCaptchaLoginPage(html: string): boolean {
@@ -367,9 +370,16 @@ export class ClalitAuth {
     const captchaToOtpPageMs = otpPageReadyAt - captchaSubmittedAt;
 
     const otpUrl = PORTAL_ORIGIN + PATHS.otpSms;
+    // Fail closed: never prompt for SMS or build an OTP POST without txtClientOTP.
+    if (!otpEntryInputPresent(otpHtml)) {
+      throw new AuthenticationError("OTP_PAGE_MISSING");
+    }
     const otpState = extractWebFormsState(otpHtml);
     const resolvedOtpField = resolveInputName(otpHtml, "txtClientOTP");
-    const otpField = resolvedOtpField ?? "txtClientOTP";
+    if (!resolvedOtpField) {
+      throw new AuthenticationError("OTP_PAGE_MISSING");
+    }
+    const otpField = resolvedOtpField;
     // Live page posts via LinkButton, not a type=submit. Empty __EVENTTARGET
     // redisplays OTPSMSVerification (200, no PostOtpAuth) and a later cold
     // Login.aspx GET only sets .ONLINEAUTH.
@@ -724,11 +734,13 @@ export class ClalitAuth {
     let html = await readText(current);
     let triedOtpGet = false;
     let followedHasOtpRedirect = false;
+    const visitedHtmlHops = new Set<string>();
 
     for (let hops = 0; hops < 8; hops += 1) {
       if (looksLikeBotChallenge(html, current.status)) {
         throw new AuthenticationError("BOT_CHALLENGE", current.status);
       }
+      // Only a page with the SMS-code <input> counts as the OTP form.
       if (looksLikeOtpPage(html)) {
         return { html, url: currentUrl };
       }
@@ -746,6 +758,44 @@ export class ClalitAuth {
         html = await readText(current);
         continue;
       }
+
+      const location = current.headers.get("location");
+      if (location && isRedirectStatus(current.status)) {
+        const next = location.startsWith("http") ? location : PORTAL_ORIGIN + location;
+        current = await this.transport.request(next, { allowLoginHtml: true });
+        currentUrl = next;
+        html = await readText(current);
+        continue;
+      }
+
+      // ASP.NET Object-moved / JS redirects (HTTP 200 body). After HasOTP the next
+      // Login.aspx may be Object-moved or still captcha-shaped while only *mentioning*
+      // OTPSMSVerification — follow toward the real OTP page; do not harvest fields yet.
+      const htmlTarget = extractHtmlRedirectTarget(html);
+      if (htmlTarget) {
+        const next = resolvePortalUrl(htmlTarget, currentUrl);
+        if (!visitedHtmlHops.has(next)) {
+          visitedHtmlHops.add(next);
+          current = await this.transport.request(next, { allowLoginHtml: true });
+          currentUrl = next;
+          html = await readText(current);
+          continue;
+        }
+      }
+
+      // After HasOTP→Login.aspx, Login chrome must not be treated as CAPTCHA_REJECTED.
+      // Prefer an explicit OTP GET, then fail closed without prompting for SMS.
+      if (followedHasOtpRedirect) {
+        if (!triedOtpGet) {
+          triedOtpGet = true;
+          current = await this.transport.request(otpUrl, { allowLoginHtml: true });
+          currentUrl = otpUrl;
+          html = await readText(current);
+          continue;
+        }
+        throw new AuthenticationError("OTP_PAGE_MISSING", current.status);
+      }
+
       if (looksLikeCaptchaLoginPage(html)) {
         // Prefer the response HTML (may show validators); fall back to pre-POST shape.
         const dumpHtml = html.length > 100 ? html : loginHtmlForDump;
@@ -756,15 +806,6 @@ export class ClalitAuth {
           status: current.status,
         });
         throw new AuthenticationError("CAPTCHA_REJECTED", current.status);
-      }
-
-      const location = current.headers.get("location");
-      if (location && isRedirectStatus(current.status)) {
-        const next = location.startsWith("http") ? location : PORTAL_ORIGIN + location;
-        current = await this.transport.request(next, { allowLoginHtml: true });
-        currentUrl = next;
-        html = await readText(current);
-        continue;
       }
 
       // Empty/non-OTP body with no redirect: progress with an explicit OTP GET once.
