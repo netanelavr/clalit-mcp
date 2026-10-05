@@ -37,3 +37,15 @@ exports/
 
 # Internal research / handoffs
 /.internal/
+
+# Agent / local probe leftovers (never commit)
+.agent-tmp/
+.tmp-agent/
+scripts/http-captcha-probe*.mjs
+scripts/pw-proof*.mjs
+
+# Captcha image dumps anywhere in tree
+**/captcha*.jpg
+**/captcha*.png
+**/captcha*.jpeg
+**/captcha*.webp
