@@ -20,13 +20,13 @@ The site is fronted by Imperva. Headless datacenter clients often receive **Erro
 - Does **not** solve CAPTCHA
 - Expects a human on a residential / normal user machine
 
-## Browser login (`login --http`)
+## Browser login (`login`)
 
-Same CAPTCHA + SMS OTP flow as terminal login, but prompts run on a **loopback** page (`http://127.0.0.1:<port>/`). The CAPTCHA image is fetched with the login cookie jar and shown in the page when possible. Writes the same `session.json`. Does **not** bypass Imperva or solve CAPTCHA.
+`clalit-mcp login` opens a **loopback** page (`http://127.0.0.1:<port>/`) for Israeli ID, CAPTCHA, and SMS OTP. The CAPTCHA image is fetched with the login cookie jar and shown in the page when possible. Writes `session.json`. Does **not** bypass Imperva or solve CAPTCHA. `--http` is accepted as a no-op alias.
 
-Form posts use **303 See Other** (PRG) so Refresh / double-Continue cannot replay a CAPTCHA or OTP POST into a cleared waiter. Answers are buffered if Continue races ahead of the portal prompt. Only one `login --http` may run at a time (lockfile). Loopback session budget: **~30 minutes**.
+Form posts use **303 See Other** (PRG) so Refresh / double-Continue cannot replay a CAPTCHA or OTP POST into a cleared waiter. Answers are buffered if Continue races ahead of the portal prompt. Only one `login` may run at a time (lockfile). Loopback session budget: **~30 minutes**.
 
-After CAPTCHA Continue, the client POSTs to Clalit, follows redirects (or GETs the OTP page), and must reach SMS OTP **or** surface a clear error within **~30 seconds** (transport abort + captcha-check budget). Waiting pages auto-refresh every 2s so OTP / failure UI appears without a manual reload. If the browser UI stalls, use terminal fallback: `clalit-mcp login`.
+After CAPTCHA Continue, the client POSTs to Clalit, follows redirects (or GETs the OTP page), and must reach SMS OTP **or** surface a clear error within **~30 seconds** (transport abort + captcha-check budget). Waiting pages auto-refresh every 2s so OTP / failure UI appears without a manual reload.
 
 ## What we store
 
@@ -58,7 +58,7 @@ A redacted `login-hops-*.json` dump (per-hop URL, status, content-type, Location
 
 ### Reading a failed-login dump
 
-Start with `why.why` in the newest `login-hops-*.json`. The same reason code is on the `login --http` error page and in the stderr `[clalit login] why:` line.
+Start with `why.why` in the newest `login-hops-*.json`. The same reason code is on the `login` error page and in the stderr `[clalit login] why:` line.
 
 - `otp_redisplayed_with_error`: the portal showed the OTP form again with a visible error. See `otpPost.validationSnippets[].text` (digits shown as `#`). This is usually a wrong or expired code, so request a new SMS.
 - `otp_redisplayed_silent`: the form came back with no visible error. Compare `otpPost.post.missingExpectedKeys` with `otpPost.responseForm`.

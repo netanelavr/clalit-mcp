@@ -1,7 +1,6 @@
 import { connect, decodeLabOrderRef, decodeLabRef } from "@clalit/core";
 import { writeFile } from "node:fs/promises";
 import { help } from "./commands.js";
-import { runLogin } from "./login.js";
 import { runLoginHttp } from "./http-login.js";
 import { clearSession, loadSession } from "./store.js";
 
@@ -32,21 +31,20 @@ export async function runCli(args: string[]): Promise<number> {
   }
 
   switch (cmd) {
-    case "login":
-      if (has(rest, "http")) {
-        const portRaw = flag(rest, "port");
-        const port = portRaw ? Number(portRaw) : undefined;
-        if (portRaw && (!Number.isInteger(port) || port! < 0 || port! > 65535)) {
-          console.error("Usage: clalit-mcp login --http [--id ID] [--port PORT] [--no-open]");
-          return 2;
-        }
-        return runLoginHttp({
-          idNumber: flag(rest, "id"),
-          ...(port !== undefined ? { port } : {}),
-          open: !has(rest, "no-open"),
-        });
+    case "login": {
+      // --http is a harmless no-op alias (browser login is the only mode).
+      const portRaw = flag(rest, "port");
+      const port = portRaw ? Number(portRaw) : undefined;
+      if (portRaw && (!Number.isInteger(port) || port! < 0 || port! > 65535)) {
+        console.error("Usage: clalit-mcp login [--id ID] [--port PORT] [--no-open]");
+        return 2;
       }
-      return runLogin(flag(rest, "id"));
+      return runLoginHttp({
+        idNumber: flag(rest, "id"),
+        ...(port !== undefined ? { port } : {}),
+        open: !has(rest, "no-open"),
+      });
+    }
     case "logout":
       await clearSession();
       console.log("Local session deleted.");

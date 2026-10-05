@@ -32,15 +32,7 @@ npx tsx packages/cli/src/main.ts help
 
 ## Login
 
-The user must solve the portal CAPTCHA and enter the SMS OTP. Nothing is solved automatically.
-
-Prefer browser login so the CAPTCHA image is visible:
-
-```sh
-npx tsx packages/cli/src/main.ts login --http
-```
-
-Or terminal prompts:
+The user must solve the portal CAPTCHA and enter the SMS OTP in a loopback browser page. Nothing is solved automatically.
 
 ```sh
 npx tsx packages/cli/src/main.ts login

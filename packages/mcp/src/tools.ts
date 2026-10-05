@@ -16,7 +16,7 @@ export async function getClient(): Promise<ClalitClient> {
   const session = await loadSession();
   if (!session) {
     throw new Error(
-      "Not signed in. On your Mac run: npx clalit-mcp login (CAPTCHA + SMS OTP). Cloud/datacenter IPs are blocked by Imperva.",
+      "Not signed in. On your Mac run: npx tsx packages/cli/src/main.ts login (browser CAPTCHA + SMS OTP). Cloud/datacenter IPs are blocked by Imperva.",
     );
   }
   return connect(session);

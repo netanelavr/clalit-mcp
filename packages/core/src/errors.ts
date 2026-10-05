@@ -48,7 +48,7 @@ const AUTH_MESSAGES: Record<string, string> = {
   OTP_PAGE_MISSING:
     "Clalit did not open the SMS OTP step after CAPTCHA. The CAPTCHA may be wrong, or the portal response changed. Try again.",
   CAPTCHA_CHECK_TIMEOUT:
-    "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step in time. Try again, or use terminal login: clalit-mcp login",
+    "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step in time. Try again: clalit-mcp login",
   AUTHENTICATION_FAILED: "Clalit sign-in did not complete. Check the login step and try again.",
   OTP_SESSION_INCOMPLETE: otpSessionIncompleteMessage("missing_portal_defense_cookies"),
 };

@@ -14,8 +14,7 @@
   },
   "type": "module",
   "exports": {
-    "./store": "./src/store.ts",
-    "./login": "./src/login.ts"
+    "./store": "./src/store.ts"
   },
   "dependencies": {
     "@clalit/core": "0.1.0"

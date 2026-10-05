@@ -12,13 +12,13 @@ export interface Command {
 
 export const COMMANDS: Record<string, Command> = {
   login: {
-    usage: "login [--id ID] [--http] [--port PORT] [--no-open]",
-    summary: "Interactive CAPTCHA + SMS OTP sign-in (own machine).",
+    usage: "login [--id ID] [--port PORT] [--no-open]",
+    summary: "Browser CAPTCHA + SMS OTP sign-in (own machine).",
     description:
-      "Sign in to Clalit e-services on this machine. Solves nothing automatically: you type CAPTCHA and SMS OTP. Session cookies are stored locally. With --http, opens a loopback browser page (127.0.0.1) for ID, CAPTCHA image, and SMS OTP — same session file as terminal login.",
-    options: ["id", "http", "port", "no-open"],
+      "Sign in to Clalit e-services on this machine via a loopback browser page (127.0.0.1). You enter Israeli ID, CAPTCHA, and SMS OTP in the browser. Nothing is solved automatically. Session cookies are stored locally.",
+    options: ["id", "port", "no-open"],
     notes:
-      "Requires residential/user IP. Datacenter hosts hit Imperva Error 16. No bot / Imperva / CAPTCHA bypass. Prefer `login --http` when the terminal cannot show the CAPTCHA image.",
+      "Requires residential/user IP. Datacenter hosts hit Imperva Error 16. No bot / Imperva / CAPTCHA bypass. `--http` is accepted as a no-op alias.",
   },
   logout: {
     usage: "logout",

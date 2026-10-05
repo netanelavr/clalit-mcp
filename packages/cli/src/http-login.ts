@@ -2,8 +2,8 @@
  * Loopback browser login for CAPTCHA + SMS OTP.
  *
  * Starts http://127.0.0.1:<port>/ where the member enters Israeli ID, CAPTCHA
- * (image proxied from the portal when available), and SMS OTP. Writes the same
- * session.json as terminal `login`. Never bypasses Imperva or solves CAPTCHA.
+ * (image proxied from the portal when available), and SMS OTP. Writes
+ * session.json. Never bypasses Imperva or solves CAPTCHA.
  *
  * Flow uses Post/Redirect/Get (303) so Continue never double-POSTs into a
  * cleared pending slot. CAPTCHA/OTP answers are buffered durably so a submit
@@ -179,7 +179,7 @@ export function errorPage(message: string, details?: LoginFailureDiagnostics): s
     `<h1>Sign-in stopped · ההתחברות נעצרה</h1>
 ${failureDetailsBlock(details)}
 <p dir="ltr">${escapeHtml(message)}</p>
-<p class="note">Close this window and run <code>clalit-mcp login --http</code> again. Or use terminal prompts: <code>clalit-mcp login</code>. Never bypass Imperva.</p>`,
+<p class="note">Close this window and run <code>clalit-mcp login</code> again. Never bypass Imperva.</p>`,
   );
 }
 
@@ -261,7 +261,7 @@ function httpLoginLockPath(): string {
 }
 
 /**
- * Exclusive lock so a second `login --http` cannot open another loopback
+ * Exclusive lock so a second `login` cannot open another loopback
  * server that races the same browser tabs / clears in-flight CAPTCHA state.
  */
 async function tryAcquireLockFile(path: string): Promise<FileHandle | null> {
@@ -279,7 +279,7 @@ export async function acquireHttpLoginLock(): Promise<{ release: () => Promise<v
   await mkdir(configDir(), { recursive: true, mode: 0o700 });
   let handle = await tryAcquireLockFile(path);
   if (!handle) {
-    // Stale lock from a crashed previous login --http: reclaim if pid is gone.
+    // Stale lock from a crashed previous login: reclaim if pid is gone.
     try {
       const { readFile } = await import("node:fs/promises");
       const raw = await readFile(path, "utf8");
@@ -358,7 +358,7 @@ export async function runLoginHttp(options: RunLoginHttpOptions = {}): Promise<n
   const lock = options.skipLock ? { release: async () => undefined } : await acquireHttpLoginLock();
   if (!lock) {
     console.error(
-      "Another clalit-mcp login --http is already running on this machine.",
+      "Another clalit-mcp login is already running on this machine.",
     );
     console.error(
       "Finish or cancel that sign-in first. A second browser login would clear the CAPTCHA/OTP step.",
@@ -447,7 +447,7 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
         startPhaseWatchdog(
           "submitting_captcha",
           CAPTCHA_CHECK_TIMEOUT_MS,
-          "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step within ~30s. Try again, or use terminal login: clalit-mcp login",
+          "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step within ~30s. Try again: clalit-mcp login",
         );
         return answer;
       }
@@ -458,7 +458,7 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
       startPhaseWatchdog(
         "submitting_captcha",
         CAPTCHA_CHECK_TIMEOUT_MS,
-        "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step within ~30s. Try again, or use terminal login: clalit-mcp login",
+        "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step within ~30s. Try again: clalit-mcp login",
       );
       return answer;
     },
@@ -568,7 +568,7 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
         }
         const fields = new URLSearchParams(body);
         if (fields.get("csrf") !== csrf) {
-          lastError = "This sign-in form expired (CSRF mismatch). Start login --http again.";
+          lastError = "This sign-in form expired (CSRF mismatch). Start login again.";
           phase = "failed";
           redirectSeeOther(res);
           return;
@@ -631,7 +631,7 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
           }
           // Wrong step (e.g. OTP screen): stay on current step with a soft error.
           lastError =
-            "CAPTCHA Continue was ignored because that step is not waiting for input anymore. Use the form shown on this page, or restart login --http.";
+            "CAPTCHA Continue was ignored because that step is not waiting for input anymore. Use the form shown on this page, or restart login.";
           redirectSeeOther(res);
           return;
         }
@@ -660,7 +660,7 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
             return;
           }
           lastError =
-            "SMS OTP Continue was ignored because that step is not waiting for input anymore. Use the form shown on this page, or restart login --http.";
+            "SMS OTP Continue was ignored because that step is not waiting for input anymore. Use the form shown on this page, or restart login.";
           redirectSeeOther(res);
           return;
         }
@@ -701,7 +701,7 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
   }
 
   const timeout = setTimeout(() => {
-    fail("No browser sign-in finished within the time limit. Run login --http again.", 1);
+    fail("No browser sign-in finished within the time limit. Run login again.", 1);
   }, ttlMs);
 
   const loginTask = (async () => {
@@ -730,28 +730,28 @@ async function runLoginHttpUnlocked(options: RunLoginHttpOptions = {}): Promise<
       const code = err && typeof err === "object" && "code" in err ? String((err as { code: string }).code) : "";
       if (code === "BOT_CHALLENGE") {
         fail(
-          "Imperva blocked this host (often Error 16 on datacenter/cloud IPs). Run login --http on your Mac / home network. Never bypass Imperva.",
+          "Imperva blocked this host (often Error 16 on datacenter/cloud IPs). Run login on your Mac / home network. Never bypass Imperva.",
           3,
         );
         return;
       }
       if (code === "TIMEOUT" || code === "CAPTCHA_CHECK_TIMEOUT") {
         fail(
-          "Checking CAPTCHA timed out. Clalit did not respond in time (~30s). Try again, or use terminal login: clalit-mcp login",
+          "Checking CAPTCHA timed out. Clalit did not respond in time (~30s). Try again: clalit-mcp login",
           1,
         );
         return;
       }
       if (code === "CAPTCHA_REJECTED") {
         fail(
-          "CAPTCHA was rejected by Clalit. Run login --http again (or terminal: clalit-mcp login), refresh the image, and retry.",
+          "CAPTCHA was rejected by Clalit. Run login again, refresh the image, and retry.",
           1,
         );
         return;
       }
       if (code === "OTP_PAGE_MISSING") {
         fail(
-          "Clalit did not open the SMS OTP step after CAPTCHA. Try again, or use terminal login: clalit-mcp login",
+          "Clalit did not open the SMS OTP step after CAPTCHA. Try again: clalit-mcp login",
           1,
         );
         return;
@@ -793,7 +793,7 @@ function loginFailureDetails(err: unknown): LoginFailureDiagnostics | undefined 
   return d && typeof d === "object" ? d : undefined;
 }
 
-/** Same why + dump paths on stderr so terminal users see it without the browser tab. */
+/** Same why + dump paths on stderr so the CLI shows them without relying on the browser tab. */
 export function logFailureToStderr(details?: LoginFailureDiagnostics): void {
   if (!details) return;
   if (details.why) console.error(`[clalit login] why: ${details.why}${details.signals?.length ? ` [${details.signals.join(",")}]` : ""}`);

@@ -5,7 +5,7 @@
 - Public repo cleanup: agent skill, docs, CI, GitHub-only install (no npm publish).
 - **CLI + MCP only** — `@clalit/core` stays a private workspace package, not a public SDK.
 - **Reads:** prescriptions list + issue status; lab orders list + detail (fixtures; no PDFs).
-- **Login:** loopback `login --http`, CAPTCHA/WebForms fixes, OTP diagnostics, session save race fix.
+- **Login:** browser-only loopback `login` (CAPTCHA + SMS OTP); CAPTCHA/WebForms fixes, OTP diagnostics, session save race fix.
 - **Still out:** `MedicalReferrals.aspx`, prescription/lab-order PDFs.
 
 ## 0.1.0 — 2026-09-29
