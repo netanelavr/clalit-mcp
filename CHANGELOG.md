@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Docs / packaging: position the product as **CLI + MCP only**. `@clalit/core` remains a private workspace package shared by CLI/MCP — not advertised as a public Node library/SDK.
+- Prescriptions list: parse human-readable `medicineName` from `colMedicineName` (sibling of the data-* panel) and strip trailing `;` from `medicineStartDate`.
+
 - Prescriptions (מרשמים): `listPrescriptions` + optional `getPrescriptionIssueStatus` (IssueDrugsByPatientReceiptId read status only). CLI `prescriptions` / `prescription-status`; MCP `list_prescriptions` / `get_prescription_issue_status`. Zero-PHI fixtures. No PDF/print.
 - Lab orders (הפניות לבדיקות מעבדה): `listLabOrders` + `getLabOrder`. CLI `lab-orders` / `lab-order`; MCP `list_lab_orders` / `get_lab_order`. Zero-PHI fixtures. Not `MedicalReferrals.aspx`; no PDF/print.
 - Docs: CAPABILITIES / API-SOURCES / README / MCP / CLI updated; MedicalReferrals + PDFs remain out.

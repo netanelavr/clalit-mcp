@@ -1,7 +1,7 @@
 {
   "name": "clalit-mcp",
   "version": "0.1.0",
-  "description": "Node.js library, CLI, and MCP server for reading your own Clalit Health Services lab records.",
+  "description": "CLI and MCP server for reading your own Clalit Health Services lab records, prescriptions, and lab orders.",
   "mcpName": "io.github.netanelavr/clalit-mcp",
   "keywords": [
     "clalit",
@@ -12,7 +12,6 @@
     "healthcare",
     "israel",
     "cli",
-    "library",
     "labs"
   ],
   "license": "MIT",

@@ -2,7 +2,7 @@
   "name": "@clalit/cli",
   "version": "0.1.0",
   "private": true,
-  "description": "Private-terminal CLI for personal Clalit lab reads.",
+  "description": "CLI for reading your own Clalit labs, prescriptions, and lab orders.",
   "license": "MIT",
   "repository": {
     "type": "git",

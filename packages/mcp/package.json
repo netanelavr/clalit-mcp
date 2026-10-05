@@ -2,7 +2,7 @@
   "name": "@clalit/mcp",
   "version": "0.1.0",
   "private": true,
-  "description": "Local stdio MCP transport for personal Clalit lab reads.",
+  "description": "Local stdio MCP server for reading your own Clalit labs, prescriptions, and lab orders.",
   "license": "MIT",
   "repository": {
     "type": "git",

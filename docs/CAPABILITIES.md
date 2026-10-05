@@ -2,15 +2,17 @@
 
 ## Implemented
 
-| Read | Library | CLI | MCP |
+| Read | CLI | MCP | Internal (`@clalit/core`, private) |
 | --- | --- | --- | --- |
-| Lab history list | `client.listLabs()` | `labs` | `list_labs` |
-| Lab result detail | `client.getLabResult(ref)` | `lab --ref` | `get_lab_result` |
-| Lab PDF | `client.getLabDocument(ref)` | `lab-document` | `get_lab_document` |
-| Prescriptions list (מרשמים) | `client.listPrescriptions()` | `prescriptions` | `list_prescriptions` |
-| Prescription issue status (read) | `client.getPrescriptionIssueStatus(...)` | `prescription-status` | `get_prescription_issue_status` |
-| Lab orders list (הפניות לבדיקות מעבדה) | `client.listLabOrders()` | `lab-orders` | `list_lab_orders` |
-| Lab order detail | `client.getLabOrder(ref)` | `lab-order --ref` | `get_lab_order` |
+| Lab history list | `labs` | `list_labs` | `listLabs()` |
+| Lab result detail | `lab --ref` | `get_lab_result` | `getLabResult(ref)` |
+| Lab PDF | `lab-document` | `get_lab_document` | `getLabDocument(ref)` |
+| Prescriptions list (מרשמים) | `prescriptions` | `list_prescriptions` | `listPrescriptions()` |
+| Prescription issue status (read) | `prescription-status` | `get_prescription_issue_status` | `getPrescriptionIssueStatus(...)` |
+| Lab orders list (הפניות לבדיקות מעבדה) | `lab-orders` | `list_lab_orders` | `listLabOrders()` |
+| Lab order detail | `lab-order --ref` | `get_lab_order` | `getLabOrder(ref)` |
+
+`@clalit/core` is a **private** workspace package shared by the CLI and MCP server. It is not a published SDK — do not advertise or document installing it as a library.
 
 Upstream pages:
 
@@ -47,3 +49,4 @@ Upstream pages:
 - Family member switching
 - Booking, payments, profile updates, prescription purchase writes
 - Clinical advice
+- Publishing `@clalit/core` as a public Node library / SDK

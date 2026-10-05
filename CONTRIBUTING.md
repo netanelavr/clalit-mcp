@@ -16,4 +16,4 @@ npm run typecheck
 
 ## Scope
 
-v1 focus is labs. Match the existing core → CLI → MCP layout. Keep errors free of upstream URLs and response bodies.
+Match the existing private-core → CLI → MCP layout (do not document `@clalit/core` as a public SDK). Keep errors free of upstream URLs and response bodies.

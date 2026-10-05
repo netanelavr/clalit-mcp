@@ -2,7 +2,7 @@
   "name": "@clalit/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Shared Clalit account client (ASP.NET WebForms HTML parse) used by the CLI and MCP server.",
+  "description": "Private shared Clalit client (ASP.NET WebForms HTML parse) used by the CLI and MCP server \u2014 not a published SDK.",
   "license": "MIT",
   "repository": {
     "type": "git",

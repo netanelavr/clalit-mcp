@@ -4,7 +4,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Unofficial TypeScript library, CLI, and MCP server for **your own** Clalit Health Services (שירותי בריאות כללית) e-services lab records.
+Unofficial **CLI and MCP server** for reading **your own** Clalit Health Services (שירותי בריאות כללית) e-services records (labs, prescriptions, lab orders).
 
 > **Not affiliated with Clalit.** This is an independent open-source project. It is not a Clalit product, not endorsed by Clalit, and not a substitute for the official portal or clinical advice.
 
@@ -88,28 +88,17 @@ See [docs/LIVE-VERIFY.md](docs/LIVE-VERIFY.md) for the first live login checklis
 
 Tools: `list_labs`, `get_lab_result`, `get_lab_document`, `list_prescriptions`, `get_prescription_issue_status`, `list_lab_orders`, `get_lab_order`. You must already have a local session from `login`.
 
-## Library
 
-```ts
-import { login, connect } from "@clalit/core";
-
-const client = await login(idNumber, {
-  solveCaptcha: async () => prompt("CAPTCHA"),
-  readOtp: async () => prompt("SMS OTP"),
-});
-
-const labs = await client.listLabs();
-const detail = await client.getLabResult(labs[0]!.refToken!);
-```
-
-## Architecture (mirrors maccabi-health shape)
+## Architecture
 
 ```
 packages/
-  core/   # transport, auth design, WebForms helpers, labs parsers
+  core/   # private shared client (parsers, transport) — used by CLI/MCP only
   cli/    # login prompts, session store, commands
   mcp/    # stdio MCP tools
 ```
+
+User-facing surfaces are the **CLI** and **MCP server**. `@clalit/core` stays a private workspace package (not a published SDK).
 
 Upstream surface is **ASP.NET WebForms HTML** (`__VIEWSTATE` / `__EVENTVALIDATION` / `__doPostBack`), not a public JSON API. Evidence: [docs/API-SOURCES.md](docs/API-SOURCES.md) and the redacted Gate 2 map under `docs/research/`.
 
@@ -142,4 +131,4 @@ Security problems → [SECURITY.md](SECURITY.md).
 - [Contributing](CONTRIBUTING.md)
 - [MIT license](LICENSE)
 
-Inspired by the package layout of [orenyomtov/maccabi-health](https://github.com/orenyomtov/maccabi-health) (core → CLI → MCP). Clalit uses a different upstream (WebForms HTML vs Maccabi's JSON APIs).
+Package layout (private core → CLI → MCP) is similar in spirit to [orenyomtov/maccabi-health](https://github.com/orenyomtov/maccabi-health); Clalit uses a different upstream (WebForms HTML vs Maccabi's JSON APIs). This repo ships CLI + MCP only — not a public core library.
