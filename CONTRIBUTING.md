@@ -4,6 +4,7 @@
 
 - Never commit HAR files, cookies, session exports, ID numbers, or real lab PDFs.
 - Prefer sanitized HTML fixtures under `packages/core/test/fixtures/`.
+- Do **not** invent endpoints beyond the redacted HAR / HTML evidence maps. Add fetchers only with a redacted map entry and fixtures.
 - Do not add prescription/referral fetchers without a redacted HAR map entry and fixtures.
 
 ## Dev

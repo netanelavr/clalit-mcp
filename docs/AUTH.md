@@ -1,6 +1,6 @@
 # Authentication
 
-## Upstream flow (observed, Gate 2 HAR)
+## Upstream flow (observed, redacted endpoint map)
 
 Host: `https://e-services.clalit.co.il`
 
@@ -71,12 +71,12 @@ Start with `why.why` in the newest `login-hops-*.json`. The same reason code is 
 
 `why.signals` adds hints such as `otp_entry_slow`, meaning more than 3 minutes passed between the OTP page and the code. `relatedDumps` links the matching `otp-redisplay-*.json`.
 
-On a residential Mac, login optionally warms those defense cookies via **Playwright** (Chrome channel when available) before the Node CAPTCHA/OTP chain, then merges `Domain=.clalit.co.il` cookies into the tough-cookie jar with `loose` parsing.
+On a residential machine, login may optionally warm those defense cookies via **Playwright** (Chrome channel when available) before the Node CAPTCHA/OTP chain, then merges `Domain=.clalit.co.il` cookies into the tough-cookie jar with `loose` parsing. Playwright is a **devDependency** only (`npm install` in this repo). Login works without it; when Playwright is missing, the warm step is skipped.
 
 
 ## Idle TTL
 
-Portal session TTL was **not measured** in Gate 2. Default soft idle hint: **~30 minutes**. Longer idle → expect `REAUTHENTICATION_REQUIRED` and run `login` again.
+Portal session TTL was **not measured** in live validation. Default soft idle hint: **~30 minutes**. Longer idle → expect `REAUTHENTICATION_REQUIRED` and run `login` again.
 
 ## Keep-alive
 

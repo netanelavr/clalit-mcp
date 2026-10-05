@@ -1,5 +1,5 @@
 {
-  "gate2_status": "partial_pass_from_har",
+  "map_status": "partial_pass_from_har",
   "hosts_allowlist_candidates": [
     "e-services.clalit.co.il",
     "accessibility.clalit.co.il"

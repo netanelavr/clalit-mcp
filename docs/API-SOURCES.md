@@ -1,6 +1,6 @@
 # API sources
 
-Evidence base: redacted Gate 2 HAR map (`docs/research/gate2-redacted-map.json`) plus prescriptions / LabOrders redacted map (field names only; HARs not committed).
+Evidence base: [redacted endpoint map](research/redacted-endpoint-map.json) (field names only; HARs not committed) plus prescriptions / LabOrders observations from the same process.
 
 ## Surface
 

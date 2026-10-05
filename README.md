@@ -8,6 +8,22 @@ Unofficial **CLI and MCP server** for reading **your own** Clalit Health Service
 
 > **Not affiliated with Clalit.** This is an independent open-source project. It is not a Clalit product, not endorsed by Clalit, and not a substitute for the official portal or clinical advice.
 
+## Getting started with an AI assistant
+
+Copy and paste this to your agent:
+
+```
+Read my Clalit lab results from the last year and summarize anything out of range.
+
+https://raw.githubusercontent.com/netanelavr/clalit-mcp/main/skills/clalit-mcp/SKILL.md
+```
+
+Or install the skill locally:
+
+```sh
+npx skills add netanelavr/clalit-mcp
+```
+
 ## What works in v0.1 (MVP)
 
 | Capability | Status |
@@ -15,7 +31,7 @@ Unofficial **CLI and MCP server** for reading **your own** Clalit Health Service
 | `listLabs` — laboratory history list | Implemented (HTML parse + fixtures) |
 | `getLabResult` — one result detail | Implemented (HTML parse + fixtures) |
 | `getLabDocument` — original PDF | Implemented (POST download + fixtures) |
-| Interactive login (CAPTCHA + SMS OTP) | Designed + stubbed; **live on your Mac only** |
+| Interactive login (CAPTCHA + SMS OTP) | Implemented; **requires your own residential machine** |
 | `listPrescriptions` / issue status (מרשמים) | Implemented (HTML + IssueDrugs read; no PDF) |
 | `listLabOrders` / `getLabOrder` (הפניות לבדיקות מעבדה) | Implemented (HTML parse + fixtures; no PDF) |
 | `MedicalReferrals.aspx` / prescription·lab-order PDFs | Still out |
@@ -39,7 +55,7 @@ Clalit e-services sit behind **Imperva**. Interactive login is:
 2. **SMS OTP** (`OTPSMSVerification.aspx`)
 3. Portal session cookies
 
-Cloud agent boxes and datacenter IPs typically fail at step 0 with Imperva Error 16. **There is no supported workaround** in this package. Log in on your Mac / home network, then use the saved session for CLI/MCP reads on that same machine.
+Datacenter and cloud IPs typically fail at step 0 with Imperva Error 16. **There is no supported workaround** in this package. Log in on your own machine / home network, then use the saved session for CLI/MCP reads on that same machine.
 
 Optional soft keep-alive: `RefreshSession.aspx` (observed in HAR). Idle TTL is **unmeasured**; treat ~30 minutes idle as "may need login again."
 
@@ -52,13 +68,13 @@ npm install
 npm test
 ```
 
-Global CLI (after publish / from checkout with a bin shim):
+Run the CLI from the checkout:
 
 ```sh
 npx tsx packages/cli/src/main.ts help
 ```
 
-## Sign in (Mac / residential)
+## Sign in (residential)
 
 ```sh
 # Prefer HTTP UI so the CAPTCHA image is visible in the browser:
@@ -100,15 +116,13 @@ packages/
 
 User-facing surfaces are the **CLI** and **MCP server**. `@clalit/core` stays a private workspace package (not a published SDK).
 
-Upstream surface is **ASP.NET WebForms HTML** (`__VIEWSTATE` / `__EVENTVALIDATION` / `__doPostBack`), not a public JSON API. Evidence: [docs/API-SOURCES.md](docs/API-SOURCES.md) and the redacted Gate 2 map under `docs/research/`.
+Upstream surface is **ASP.NET WebForms HTML** (`__VIEWSTATE` / `__EVENTVALIDATION` / `__doPostBack`), not a public JSON API. Evidence: [docs/API-SOURCES.md](docs/API-SOURCES.md) and the [redacted endpoint map](docs/research/redacted-endpoint-map.json).
 
 ## Roadmap
 
-1. **Done:** labs + prescriptions list/status + lab-orders list/detail (offline fixtures; Mac-local live optional).
+1. **Done:** labs + prescriptions list/status + lab-orders list/detail (offline fixtures; residential live optional).
 2. **Still out:** prescription / lab-order PDFs; `MedicalReferrals.aspx`.
 3. Harden session TTL measurement, keep-alive policy, and richer table heuristics from live HTML samples (sanitized fixtures welcome).
-
-Do **not** invent endpoints beyond the redacted HAR / HTML evidence maps.
 
 ## Privacy
 
@@ -122,11 +136,13 @@ Security problems → [SECURITY.md](SECURITY.md).
 
 ## Docs
 
+See [docs/README.md](docs/README.md) for the full index. Highlights:
+
 - [Authentication](docs/AUTH.md)
 - [Capabilities](docs/CAPABILITIES.md)
 - [CLI](docs/CLI.md)
 - [MCP](docs/MCP.md)
-- [Live verify (Mac)](docs/LIVE-VERIFY.md)
+- [Live verify (residential)](docs/LIVE-VERIFY.md)
 - [API sources](docs/API-SOURCES.md)
 - [Contributing](CONTRIBUTING.md)
 - [MIT license](LICENSE)

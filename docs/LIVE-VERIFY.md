@@ -1,11 +1,11 @@
-# Live verify (Netanel's Mac)
+# Live verify (residential machine)
 
-The shared agent box **cannot** complete Clalit login (Imperva Error 16). First live proof must happen on a residential/user machine.
+Datacenter and cloud IPs typically cannot complete Clalit login (Imperva Error 16). First live proof must happen on a residential or normal user network.
 
 ## Checklist
 
 1. Clone `https://github.com/netanelavr/clalit-mcp`, `npm install`, `npm test` (all offline tests green).
-2. On your Mac (home/residential network, normal browser already works for Clalit). Prefer the loopback HTTP UI so you can see the CAPTCHA image:
+2. On your own machine (home/residential network, normal browser already works for Clalit). Prefer the loopback HTTP UI so you can see the CAPTCHA image:
    ```sh
    npx tsx packages/cli/src/main.ts login --http
    ```
@@ -32,7 +32,7 @@ The shared agent box **cannot** complete Clalit login (Imperva Error 16). First 
 
 | Symptom | Meaning |
 | --- | --- |
-| Imperva Error 16 / `BOT_CHALLENGE` | Wrong network or automation fingerprint — use Mac UI network, no VPN datacenter. `login --http` does **not** bypass Imperva |
+| Imperva Error 16 / `BOT_CHALLENGE` | Wrong network or automation fingerprint — use a residential network, no VPN datacenter. `login --http` does **not** bypass Imperva |
 | Stuck on **Checking CAPTCHA…** / `CAPTCHA_CHECK_TIMEOUT` / `TIMEOUT` | Portal POST hung or CAPTCHA rejected; UI should error within ~30s and auto-refresh. Retry `login --http`, or terminal fallback: `npx tsx packages/cli/src/main.ts login` |
 | `CAPTCHA_REJECTED` / `OTP_PAGE_MISSING` | Wrong CAPTCHA or unexpected portal HTML — refresh image and retry. On reject, check `~/.config/clalit-mcp/captcha-rejected-*.json` (redacted field/POST keys) |
 | `REAUTHENTICATION_REQUIRED` | Idle/session expired — `login` again |
@@ -44,6 +44,6 @@ The shared agent box **cannot** complete Clalit login (Imperva Error 16). First 
 If you capture a new HAR for מרשמים / הפניות:
 
 - Redact cookies, tokens, IDs, phone numbers, clinical values
-- Keep only path + field **names** (like `docs/research/gate2-redacted-map.json`)
+- Keep only path + field **names** (like `docs/research/redacted-endpoint-map.json`)
 - Delete the raw HAR from disk after extracting the map
 - Never commit `*.har`
