@@ -8,14 +8,21 @@ export type ClalitClient = ClalitReaders & {
   refreshSession(): Promise<void>;
 };
 
-async function open(session: ClalitSession): Promise<ClalitClient> {
-  const transport = new ClalitTransport({ session });
+function wrapClient(transport: ClalitTransport, auth: ClalitAuth): ClalitClient {
   const readers = new ClalitReaders(transport);
-  const auth = new ClalitAuth(transport);
   return Object.assign(readers, {
     exportSession: () => transport.exportSession(),
     refreshSession: () => auth.refreshSession(),
   });
+}
+
+async function open(session: ClalitSession): Promise<ClalitClient> {
+  const transport = new ClalitTransport({ session });
+  // Cookie restore runs on the transport queue; wait before handing out a client
+  // so exportSession / reads never observe a half-restored jar.
+  await transport.whenReady();
+  const auth = new ClalitAuth(transport);
+  return wrapClient(transport, auth);
 }
 
 /** Interactive CAPTCHA + SMS OTP login on the caller's machine. */
@@ -24,9 +31,12 @@ export async function login(
   prompts: LoginPrompts,
   options: LoginOptions = {},
 ): Promise<ClalitClient> {
-  const auth = new ClalitAuth();
-  const session = await auth.loginInteractive(idNumber, prompts, options);
-  return open(session);
+  // Keep the authenticated transport — avoid serialize→deserialize round-trip
+  // that raced with async cookie restore and truncated session.json.
+  const transport = new ClalitTransport();
+  const auth = new ClalitAuth(transport);
+  await auth.loginInteractive(idNumber, prompts, options);
+  return wrapClient(transport, auth);
 }
 
 /** Opens a session previously returned by `client.exportSession()`. */

@@ -21,6 +21,12 @@ export interface TransportOptions {
   timeoutMs?: number;
   now?: () => number;
   minGapMs?: number;
+  /**
+   * Test seam: after removeAllCookies during restore, before cookies are re-added.
+   * Receives the mid-restore cookie count (should be 0). Must not call queue-bound
+   * session methods on this transport (would deadlock).
+   */
+  onAfterCookieClear?: (cookieCount: number) => Promise<void>;
 }
 
 export interface TransportRequestInit extends RequestInit {
@@ -96,6 +102,7 @@ export class ClalitTransport {
   readonly #timeoutMs: number;
   readonly #now: () => number;
   readonly #minGapMs: number;
+  readonly #onAfterCookieClear?: (cookieCount: number) => Promise<void>;
   #lastRequestAt = 0;
   #authenticatedAt: string | undefined;
   #idleTtlMs: number;
@@ -109,14 +116,38 @@ export class ClalitTransport {
     this.#minGapMs = options.minGapMs ?? MIN_REQUEST_GAP_MS;
     this.#idleTtlMs = options.session?.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
     this.#authenticatedAt = options.session?.authenticatedAt;
+    this.#onAfterCookieClear = options.onAfterCookieClear;
     // Await restore before any request: enqueue on the same serial queue (not fire-and-forget).
     if (options.session?.cookies) {
       this.#queue = this.#restoreCookies(options.session.cookies);
     }
   }
 
+  /**
+   * Serialize jar access on #queue so restore / requests / session reads never interleave.
+   * Callers already inside a queue task must use direct #jar helpers instead.
+   */
+  #enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.#queue.then(fn, fn);
+    this.#queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  /** Resolves when the initial cookie restore (if any) and prior queue work have finished. */
+  async whenReady(): Promise<void> {
+    await this.#queue;
+  }
+
   async #restoreCookies(serialized: SerializedCookieJar): Promise<void> {
     await this.#jar.removeAllCookies();
+    // Race window: jar is empty here. exportSession/listCookieNames must await #queue.
+    if (this.#onAfterCookieClear) {
+      const mid = (await this.#jar.serialize()).cookies?.length ?? 0;
+      await this.#onAfterCookieClear(mid);
+    }
     const restored = await CookieJar.deserialize(serialized);
     const data = await restored.serialize();
     for (const json of data.cookies ?? []) {
@@ -134,7 +165,7 @@ export class ClalitTransport {
 
   /** Set a raw Set-Cookie line on the portal jar (e.g. mirror browser HasOTP). */
   async setCookie(raw: string, url = PORTAL_ORIGIN): Promise<void> {
-    await this.#putRawCookie(raw, url);
+    await this.#enqueue(() => this.#putRawCookie(raw, url));
   }
 
   /**
@@ -142,47 +173,55 @@ export class ClalitTransport {
    * Values are never logged.
    */
   async importBrowserCookies(cookies: BrowserCookieSeed[]): Promise<number> {
-    let imported = 0;
-    for (const c of cookies) {
-      if (!c?.name || c.value === undefined || c.value === null) continue;
-      const domain = (c.domain || "e-services.clalit.co.il").trim();
-      if (!domain) continue;
-      const path = c.path || "/";
-      const parts = [`${c.name}=${c.value}`, `Path=${path}`, `Domain=${domain.startsWith(".") ? domain : domain}`];
-      if (c.httpOnly) parts.push("HttpOnly");
-      if (c.secure) parts.push("Secure");
-      if (c.sameSite) parts.push(`SameSite=${c.sameSite}`);
-      if (typeof c.expires === "number" && Number.isFinite(c.expires) && c.expires > 0) {
-        parts.push(`Expires=${new Date(c.expires * 1000).toUTCString()}`);
+    return this.#enqueue(async () => {
+      let imported = 0;
+      for (const c of cookies) {
+        if (!c?.name || c.value === undefined || c.value === null) continue;
+        const domain = (c.domain || "e-services.clalit.co.il").trim();
+        if (!domain) continue;
+        const path = c.path || "/";
+        const parts = [`${c.name}=${c.value}`, `Path=${path}`, `Domain=${domain.startsWith(".") ? domain : domain}`];
+        if (c.httpOnly) parts.push("HttpOnly");
+        if (c.secure) parts.push("Secure");
+        if (c.sameSite) parts.push(`SameSite=${c.sameSite}`);
+        if (typeof c.expires === "number" && Number.isFinite(c.expires) && c.expires > 0) {
+          parts.push(`Expires=${new Date(c.expires * 1000).toUTCString()}`);
+        }
+        const url = urlForCookieDomain(domain, path);
+        try {
+          const stored = await this.#jar.setCookie(parts.join("; "), url, { loose: true });
+          if (stored) imported += 1;
+        } catch {
+          /* ignore one bad cookie */
+        }
       }
-      const url = urlForCookieDomain(domain, path);
-      try {
-        const stored = await this.#jar.setCookie(parts.join("; "), url, { loose: true });
-        if (stored) imported += 1;
-      } catch {
-        /* ignore one bad cookie */
-      }
-    }
-    return imported;
+      return imported;
+    });
   }
 
   /** Cookie names currently in the jar (never values). */
   async listCookieNames(): Promise<string[]> {
-    const data = await this.#jar.serialize();
-    return (data.cookies ?? [])
-      .map((c) => c.key)
-      .filter((k): k is string => Boolean(k))
-      .sort();
+    return this.#enqueue(async () => {
+      const data = await this.#jar.serialize();
+      return (data.cookies ?? [])
+        .map((c) => c.key)
+        .filter((k): k is string => Boolean(k))
+        .sort();
+    });
   }
 
   async cookieCount(): Promise<number> {
-    const data = await this.#jar.serialize();
-    return (data.cookies ?? []).length;
+    return this.#enqueue(async () => {
+      const data = await this.#jar.serialize();
+      return (data.cookies ?? []).length;
+    });
   }
 
   async clearSession(): Promise<void> {
-    await this.#jar.removeAllCookies();
-    this.#authenticatedAt = undefined;
+    await this.#enqueue(async () => {
+      await this.#jar.removeAllCookies();
+      this.#authenticatedAt = undefined;
+    });
   }
 
   markAuthenticated(at = new Date(this.#now()).toISOString()): void {
@@ -190,15 +229,17 @@ export class ClalitTransport {
   }
 
   async exportSession(): Promise<ClalitSession> {
-    if (!this.#authenticatedAt) {
-      throw new ReauthenticationRequired();
-    }
-    return {
-      version: 1,
-      cookies: await this.#jar.serialize(),
-      authenticatedAt: this.#authenticatedAt,
-      idleTtlMs: this.#idleTtlMs,
-    };
+    return this.#enqueue(async () => {
+      if (!this.#authenticatedAt) {
+        throw new ReauthenticationRequired();
+      }
+      return {
+        version: 1,
+        cookies: await this.#jar.serialize(),
+        authenticatedAt: this.#authenticatedAt,
+        idleTtlMs: this.#idleTtlMs,
+      };
+    });
   }
 
   /** Soft idle check. Portal TTL is unmeasured; treat long idle as needing login. */
@@ -302,12 +343,7 @@ export class ClalitTransport {
       }
     };
 
-    const queued = this.#queue.then(run, run);
-    this.#queue = queued.then(
-      () => undefined,
-      () => undefined,
-    );
-    return queued;
+    return this.#enqueue(run);
   }
 
   async #putRawCookie(raw: string, url: string): Promise<void> {
