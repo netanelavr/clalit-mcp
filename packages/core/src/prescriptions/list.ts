@@ -22,17 +22,37 @@ function cleanPortalDate(value: string | undefined): string | undefined {
  * Medicine display name lives under colMedicineName. Live HTML often places that
  * control as a sibling of the data-* panel (pnlMedicalDetails), not a descendant.
  */
+function looksLikeMedicineNameLabel(text: string): boolean {
+  const t = text.replace(/\s+/g, " ").trim();
+  // Portal chrome: colMedicineName often holds only the Hebrew label.
+  return !t || /^שם התרופה:?$/.test(t);
+}
+
+/**
+ * Live portal: colMedicineName is the label ("שם התרופה:"); the display name is
+ * the sibling #colMedicineLink (or [id*='colMedicineLink']). Fixtures may still
+ * put the name inside colMedicineName — accept either.
+ */
 function extractMedicineDisplayName(
   $: cheerio.CheerioAPI,
   node: ReturnType<typeof $>,
 ): string | undefined {
-  const from = (scope: ReturnType<typeof $>) =>
-    cleanText(scope.find("[id*='colMedicineName'], [id*='MedicineName']").first().text());
+  const nameFromScope = (scope: ReturnType<typeof $>) => {
+    const link = cleanText(
+      scope.find("[id*='colMedicineLink'], [id$='colMedicineLink'], #colMedicineLink").first().text(),
+    );
+    if (link && !looksLikeMedicineNameLabel(link)) return link;
 
-  const direct = from(node);
+    const labeled = cleanText(
+      scope.find("[id*='colMedicineName'], [id*='MedicineName']").first().text(),
+    );
+    if (labeled && !looksLikeMedicineNameLabel(labeled)) return labeled;
+    return undefined;
+  };
+
+  const direct = nameFromScope(node);
   if (direct) return direct;
 
-  // Prefer the nearest rptMedicine_ctlNN ancestor (exclude deeper nesting noise).
   const medicineRoot = node
     .parents("[id*='rptMedicine_ctl']")
     .filter((_, el) => {
@@ -41,13 +61,13 @@ function extractMedicineDisplayName(
     })
     .first();
   if (medicineRoot.length) {
-    const named = from(medicineRoot);
+    const named = nameFromScope(medicineRoot);
     if (named) return named;
   }
 
   const parent = node.parent();
   if (parent.length) {
-    const named = from(parent);
+    const named = nameFromScope(parent);
     if (named) return named;
   }
   return undefined;
