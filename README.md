@@ -1,6 +1,6 @@
 # Clalit Health
 
-**Read your own Clalit laboratory results from a CLI or an AI assistant (MCP).**
+**Read your own Clalit records (lab results, prescriptions, lab orders) from a CLI or an AI assistant (MCP).**
 
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -13,7 +13,7 @@ Unofficial **CLI and MCP server** for reading **your own** Clalit Health Service
 Copy and paste this to your agent:
 
 ```
-Read my Clalit lab results from the last year and summarize anything out of range.
+Read my Clalit lab results from the last year and summarize anything out of range, then list my active prescriptions.
 
 https://raw.githubusercontent.com/netanelavr/clalit-mcp/main/skills/clalit-mcp/SKILL.md
 ```
@@ -84,16 +84,44 @@ npx tsx packages/cli/src/main.ts login
 npx tsx packages/cli/src/main.ts labs --json
 npx tsx packages/cli/src/main.ts lab --ref <token-from-labs> --json
 npx tsx packages/cli/src/main.ts lab-document --ref <token> --out result.pdf
+npx tsx packages/cli/src/main.ts prescriptions --json
+npx tsx packages/cli/src/main.ts lab-orders --json
+npx tsx packages/cli/src/main.ts lab-order --ref <token-from-lab-orders> --json
 ```
 
 See [docs/LIVE-VERIFY.md](docs/LIVE-VERIFY.md) for the first live login checklist.
 
 ## MCP
 
+Sign in first (`login` above); the MCP server reuses that local session.
+
+### Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) and add a server under `mcpServers`. Use **absolute paths**: Claude Desktop launched from the Dock does not see `nvm` or your shell `PATH`, and `cwd` is not reliable.
+
 ```json
 {
   "mcpServers": {
-    "clalit-mcp": {
+    "clalit": {
+      "command": "/absolute/path/to/node",
+      "args": [
+        "/absolute/path/to/clalit-mcp/node_modules/.bin/tsx",
+        "/absolute/path/to/clalit-mcp/packages/cli/src/main.ts",
+        "mcp"
+      ]
+    }
+  }
+}
+```
+
+Find your node path with `which node`. Quit Claude fully (Cmd+Q) and reopen.
+
+### Other MCP clients (Cursor, Claude Code, …)
+
+```json
+{
+  "mcpServers": {
+    "clalit": {
       "command": "npx",
       "args": ["tsx", "packages/cli/src/main.ts", "mcp"],
       "cwd": "/absolute/path/to/clalit-mcp"
@@ -102,8 +130,7 @@ See [docs/LIVE-VERIFY.md](docs/LIVE-VERIFY.md) for the first live login checklis
 }
 ```
 
-Tools: `list_labs`, `get_lab_result`, `get_lab_document`, `list_prescriptions`, `get_prescription_issue_status`, `list_lab_orders`, `get_lab_order`. You must already have a local session from `login`.
-
+Tools: `list_labs`, `get_lab_result`, `get_lab_document`, `list_prescriptions`, `get_prescription_issue_status`, `list_lab_orders`, `get_lab_order`.
 
 ## Architecture
 
