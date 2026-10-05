@@ -21,12 +21,23 @@ export const PATHS = {
   refreshSession: "/OnlineWeb/ServicesForAll/RefreshSession.aspx",
 } as const;
 
-/** WebForms field names observed for labs list date filter. */
+/** WebForms field names observed for labs list date filter + pager (HAR Oct 2026). */
 export const LABS_LIST_FIELDS = {
   fromDate: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtFromDate",
   toDate: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtToDate",
+  /** Apply date range — required; filling from/to alone does not reload the grid. */
+  filterSubmit: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$btnGetTestsAcc$lnkSubButton",
+  /** ASP.NET pager control id prefix; page N is `${pagerLinkPrefix}${N}`. */
+  pagerLinkPrefix:
+    "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$gvTestListInDateRange$PagerLink-",
   grid: "LabsHistory1$gvTestListInDateRange",
 } as const;
+
+/** Portal datepicker format on LabsTestList (dots, not slashes). */
+export const LABS_DATE_FORMAT_HINT = "dd.MM.yyyy";
+
+/** Safety cap for labs list pager walks. */
+export const LABS_LIST_MAX_PAGES = 40;
 
 
 /** WebForms field names observed for prescriptions list date/filter. */

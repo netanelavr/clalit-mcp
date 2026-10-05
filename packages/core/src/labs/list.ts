@@ -5,6 +5,21 @@ import type { LabDetailRef, LabListItem } from "./types.js";
 
 const DETAIL_PATH_HINT = /LabTestDetails\.aspx/i;
 
+/** Page numbers offered by LabsTestList pager controls in the HTML. */
+export function listVisibleLabPagerPages(html: string): number[] {
+  const pages = new Set<number>();
+  for (const match of html.matchAll(/gvTestListInDateRange[_$]PagerLink-(\d+)/g)) {
+    pages.add(Number(match[1]));
+  }
+  return [...pages].sort((a, b) => a - b);
+}
+
+/** Next pager page after `currentPage`, or undefined when this is the last page. */
+export function nextLabPagerPage(html: string, currentPage: number): number | undefined {
+  return listVisibleLabPagerPages(html).find((page) => page > currentPage);
+}
+
+
 function parseDetailRef(href: string): LabDetailRef | undefined {
   try {
     const url = new URL(href, "https://e-services.clalit.co.il");
@@ -32,9 +47,11 @@ export function parseLabsListHtml(html: string): LabListItem[] {
 
   // Prefer the observed grid id; fall back to any table that links to LabTestDetails.
   const grid =
-    $("#ctl00_ctl00_cphBody_bodyContent_LabsHistory1_gvTestListInDateRange").length > 0
-      ? $("#ctl00_ctl00_cphBody_bodyContent_LabsHistory1_gvTestListInDateRange")
-      : $("table").filter((_, t) => $(t).find('a[href*="LabTestDetails.aspx"]').length > 0).first();
+    $("#gvTestListInDateRange").length > 0
+      ? $("#gvTestListInDateRange")
+      : $("#ctl00_ctl00_cphBody_bodyContent_LabsHistory1_gvTestListInDateRange").length > 0
+        ? $("#ctl00_ctl00_cphBody_bodyContent_LabsHistory1_gvTestListInDateRange")
+        : $("table").filter((_, t) => $(t).find('a[href*="LabTestDetails.aspx"]').length > 0).first();
 
   if (grid.length === 0) {
     // Login redirect "Object moved" bodies mention LabsTestList only inside ReturnUrl —

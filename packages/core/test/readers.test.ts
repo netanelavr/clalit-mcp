@@ -151,3 +151,158 @@ describe("ClalitReaders prescriptions + lab-orders fixtures", () => {
     expect(detail.items[0]!.testName).toContain("ספירת דם");
   });
 });
+
+describe("ClalitReaders listLabs pagination", () => {
+  function pageHtml(opts: {
+    rows: Array<{ s: string; d: string; ls: string; name: string }>;
+    pager: number[];
+    viewState: string;
+    from?: string;
+    to?: string;
+  }): string {
+    const rows = opts.rows
+      .map(
+        (r) =>
+          `<tr><td>01.01.2026</td><td><a href="/OnlineWeb/Services/Labs/LabTestDetails.aspx?s=${r.s}&amp;d=${r.d}&amp;ls=${r.ls}">${r.name}</a></td></tr>`,
+      )
+      .join("");
+    const pager = opts.pager
+      .map(
+        (n) =>
+          `<a id="ctl00_ctl00_cphBody_bodyContent_LabsHistory1_gvTestListInDateRange_PagerLink-${n}" href="javascript:__doPostBack('ctl00$ctl00$cphBody$bodyContent$LabsHistory1$gvTestListInDateRange$PagerLink-${n}','')">${n}</a>`,
+      )
+      .join("");
+    const from = opts.from ?? "01.01.2026";
+    const to = opts.to ?? "05.10.2026";
+    return `<html><body><form>
+      <input type="hidden" name="__VIEWSTATE" value="${opts.viewState}" />
+      <input type="hidden" name="__VIEWSTATEGENERATOR" value="gen" />
+      <input type="hidden" name="__EVENTVALIDATION" value="ev" />
+      <input type="hidden" name="ctl00$ctl00$cphTopMenuRight$FamilySliderControl21$au" value="FAMILY_AU" />
+      <input name="ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtFromDate" value="${from}" />
+      <input name="ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtToDate" value="${to}" />
+      <table id="gvTestListInDateRange">
+        <tr><th>תאריך</th><th>בדיקה</th></tr>
+        ${rows}
+      </table>
+      ${pager}
+    </form></body></html>`;
+  }
+
+  test("walks LabsTestList pager and never posts family-slider fields", async () => {
+    const bodies: string[] = [];
+    const transport = {
+      assertNotIdleExpired(): void {},
+      async request(input: string | URL, init?: RequestInit): Promise<Response> {
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "GET") {
+          return new Response(
+            pageHtml({
+              rows: [{ s: "s1", d: "d1", ls: "ls1", name: "A" }],
+              pager: [2, 3],
+              viewState: "vs1",
+            }),
+            { status: 200, headers: { "content-type": "text/html" } },
+          );
+        }
+        const body = String(init?.body ?? "");
+        bodies.push(body);
+        expect(body).not.toContain("FAMILY_AU");
+        expect(body).not.toMatch(/FamilySliderControl\d+\$au/);
+        const params = new URLSearchParams(body);
+        const target = params.get("__EVENTTARGET") ?? "";
+        if (target.endsWith("PagerLink-2")) {
+          expect(params.get("__VIEWSTATE")).toBe("vs1");
+          return new Response(
+            pageHtml({
+              rows: [{ s: "s2", d: "d2", ls: "ls2", name: "B" }],
+              pager: [1, 3],
+              viewState: "vs2",
+            }),
+            { status: 200, headers: { "content-type": "text/html" } },
+          );
+        }
+        if (target.endsWith("PagerLink-3")) {
+          expect(params.get("__VIEWSTATE")).toBe("vs2");
+          return new Response(
+            pageHtml({
+              rows: [{ s: "s3", d: "d3", ls: "ls3", name: "C" }],
+              pager: [1, 2],
+              viewState: "vs3",
+            }),
+            { status: 200, headers: { "content-type": "text/html" } },
+          );
+        }
+        throw new Error(`unexpected target ${target}`);
+      },
+    } as unknown as ClalitTransport;
+
+    const labs = await new ClalitReaders(transport).listLabs();
+    expect(labs.map((l) => l.name)).toEqual(["A", "B", "C"]);
+    expect(bodies).toHaveLength(2);
+  });
+
+  test("date filter posts btnGetTestsAcc then pagers", async () => {
+    const targets: string[] = [];
+    const transport = {
+      assertNotIdleExpired(): void {},
+      async request(input: string | URL, init?: RequestInit): Promise<Response> {
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "GET") {
+          return new Response(
+            pageHtml({
+              rows: [{ s: "s0", d: "d0", ls: "ls0", name: "old" }],
+              pager: [],
+              viewState: "vs0",
+              from: "05.10.2024",
+              to: "05.10.2026",
+            }),
+            { status: 200, headers: { "content-type": "text/html" } },
+          );
+        }
+        const params = new URLSearchParams(String(init?.body ?? ""));
+        const target = params.get("__EVENTTARGET") ?? "";
+        targets.push(target);
+        expect(params.get("ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtFromDate")).toBe(
+          "01.01.2026",
+        );
+        expect(params.get("ctl00$ctl00$cphBody$bodyContent$LabsHistory1$datepickerRangeCalendar$txtToDate")).toBe(
+          "05.10.2026",
+        );
+        if (target.includes("btnGetTestsAcc")) {
+          return new Response(
+            pageHtml({
+              rows: [{ s: "s1", d: "d1", ls: "ls1", name: "Jan" }],
+              pager: [2],
+              viewState: "vsFiltered",
+              from: "01.01.2026",
+              to: "05.10.2026",
+            }),
+            { status: 200, headers: { "content-type": "text/html" } },
+          );
+        }
+        if (target.endsWith("PagerLink-2")) {
+          return new Response(
+            pageHtml({
+              rows: [{ s: "s2", d: "d2", ls: "ls2", name: "Feb" }],
+              pager: [1],
+              viewState: "vsLast",
+              from: "01.01.2026",
+              to: "05.10.2026",
+            }),
+            { status: 200, headers: { "content-type": "text/html" } },
+          );
+        }
+        throw new Error(`unexpected ${target}`);
+      },
+    } as unknown as ClalitTransport;
+
+    const labs = await new ClalitReaders(transport).listLabs({
+      fromDate: "01.01.2026",
+      toDate: "05.10.2026",
+    });
+    expect(targets[0]).toContain("btnGetTestsAcc$lnkSubButton");
+    expect(targets[1]).toContain("PagerLink-2");
+    expect(labs.map((l) => l.name)).toEqual(["Jan", "Feb"]);
+  });
+});

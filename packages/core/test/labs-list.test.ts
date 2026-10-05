@@ -3,7 +3,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { ReauthenticationRequired } from "../src/errors.js";
-import { decodeLabRef, encodeLabRef, parseLabsListHtml } from "../src/labs/list.js";
+import {
+  decodeLabRef,
+  encodeLabRef,
+  listVisibleLabPagerPages,
+  nextLabPagerPage,
+  parseLabsListHtml,
+} from "../src/labs/list.js";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 
@@ -46,5 +52,31 @@ describe("parseLabsListHtml", () => {
     const html =
       `<html><body>Object moved to Login.aspx?ReturnUrl=/OnlineWeb/Services/Labs/LabsTestList.aspx</body></html>`;
     expect(() => parseLabsListHtml(html)).toThrow(ReauthenticationRequired);
+  });
+});
+
+describe("labs list pager helpers", () => {
+  test("reads PagerLink ids with $ or _ separators", () => {
+    const html = `
+      <a id="ctl00_ctl00_cphBody_bodyContent_LabsHistory1_gvTestListInDateRange_PagerLink-2">2</a>
+      <a href="javascript:__doPostBack('ctl00$ctl00$cphBody$bodyContent$LabsHistory1$gvTestListInDateRange$PagerLink-3','')">3</a>
+    `;
+    expect(listVisibleLabPagerPages(html)).toEqual([2, 3]);
+    expect(nextLabPagerPage(html, 1)).toBe(2);
+    expect(nextLabPagerPage(html, 2)).toBe(3);
+    expect(nextLabPagerPage(html, 3)).toBeUndefined();
+  });
+
+  test("parses short grid id gvTestListInDateRange", () => {
+    const html = `<html><body><form>
+      <input type="hidden" name="__VIEWSTATE" value="x" />
+      <table id="gvTestListInDateRange">
+        <tr><th>תאריך</th><th>בדיקה</th></tr>
+        <tr><td>01.02.2026</td><td><a href="/OnlineWeb/Services/Labs/LabTestDetails.aspx?s=opaqueS9&amp;d=20260201&amp;ls=opaqueLS9">בדיקה</a></td></tr>
+      </table>
+    </form></body></html>`;
+    const items = parseLabsListHtml(html);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.ref).toEqual({ s: "opaqueS9", d: "20260201", ls: "opaqueLS9" });
   });
 });

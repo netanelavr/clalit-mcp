@@ -48,7 +48,8 @@ export interface LabDocument {
 }
 
 export interface ListLabsOptions {
-  /** Inclusive from-date as the portal datepicker expects (often dd/MM/yyyy). */
+  /** Inclusive from-date as the portal datepicker expects (`dd.MM.yyyy`). */
   fromDate?: string;
+  /** Inclusive to-date (`dd.MM.yyyy`). */
   toDate?: string;
 }

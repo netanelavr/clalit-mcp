@@ -42,12 +42,12 @@ export async function startStdioServer(): Promise<void> {
       {
         name: "list_labs",
         description:
-          "List the authenticated owner's Clalit laboratory history rows (LabsTestList.aspx).",
+          "List the authenticated owner's Clalit laboratory history (LabsTestList.aspx), walking every pager page.",
         inputSchema: {
           type: "object",
           properties: {
-            fromDate: { type: "string", description: "Optional from-date (portal format)." },
-            toDate: { type: "string", description: "Optional to-date (portal format)." },
+            fromDate: { type: "string", description: "Optional from-date (dd.MM.yyyy). list_labs walks all pager pages." },
+            toDate: { type: "string", description: "Optional to-date (dd.MM.yyyy)." },
           },
         },
       },

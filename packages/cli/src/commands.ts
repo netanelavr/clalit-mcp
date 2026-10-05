@@ -31,7 +31,7 @@ export const COMMANDS: Record<string, Command> = {
     summary: "List own laboratory history rows.",
     description: "Reads LabsTestList.aspx for the authenticated owner only.",
     options: ["from", "to", "json"],
-    notes: "Date format follows the portal datepicker (often dd/MM/yyyy). Never switches family members.",
+    notes: "Date format is dd.MM.yyyy. listLabs walks every pager page. Never switches family members.",
   },
   lab: {
     usage: "lab --ref TOKEN [--json]",

@@ -1,5 +1,6 @@
 import {
   LABS_LIST_FIELDS,
+  LABS_LIST_MAX_PAGES,
   PATHS,
   PORTAL_ORIGIN,
   PRESCRIPTIONS_LIST_FIELDS,
@@ -18,6 +19,7 @@ import {
   buildLabDocument,
   decodeLabRef,
   encodeLabRef,
+  nextLabPagerPage,
   parseLabDetailHtml,
   parseLabsListHtml,
   type LabDetailRef,
@@ -73,39 +75,113 @@ function assertOwnLabOrderRef(ref: LabOrderRef): void {
   if (!ref.ord) throw new ParseError("INVALID_REF");
 }
 
+
+function omitFamilySliderFields(fields: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (/FamilySliderControl\d+\$(au|cu)$/i.test(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+function labsDateFieldsFromOptions(options: ListLabsOptions): Record<string, string> {
+  const fields: Record<string, string> = {};
+  if (options.fromDate) fields[LABS_LIST_FIELDS.fromDate] = options.fromDate;
+  if (options.toDate) fields[LABS_LIST_FIELDS.toDate] = options.toDate;
+  return fields;
+}
+
+/** Round-trip datepicker values from the current list HTML (portal keeps them on pager POSTs). */
+function labsDateFieldsFromHtml(html: string): Record<string, string> {
+  const fromEsc = LABS_LIST_FIELDS.fromDate.replace(/\$/g, "\\$");
+  const toEsc = LABS_LIST_FIELDS.toDate.replace(/\$/g, "\\$");
+  const fromAlt =
+    html.match(new RegExp(`name="${fromEsc}"[^>]*value="([^"]*)"`, "i")) ??
+    html.match(new RegExp(`value="([^"]*)"[^>]*name="${fromEsc}"`, "i"));
+  const toAlt =
+    html.match(new RegExp(`name="${toEsc}"[^>]*value="([^"]*)"`, "i")) ??
+    html.match(new RegExp(`value="([^"]*)"[^>]*name="${toEsc}"`, "i"));
+  const fields: Record<string, string> = {};
+  if (fromAlt?.[1]) fields[LABS_LIST_FIELDS.fromDate] = fromAlt[1];
+  if (toAlt?.[1]) fields[LABS_LIST_FIELDS.toDate] = toAlt[1];
+  return fields;
+}
+
+function labListItemKey(item: LabListItem): string {
+  if (item.hasDetail && item.ref.s && item.ref.d && item.ref.ls) {
+    return `${item.ref.s}|${item.ref.d}|${item.ref.ls}`;
+  }
+  return `${item.date}|${item.name}|${item.summary ?? ""}`;
+}
+
 export class ClalitReaders {
   constructor(private readonly transport: ClalitTransport) {}
 
-  /** listLabs — GET LabsTestList.aspx (optional date filter via postback). */
+  /**
+   * listLabs — GET LabsTestList.aspx, optional date filter via btnGetTestsAcc,
+   * then walk PagerLink-N until the last page (HAR: ~5 rows/page).
+   */
   async listLabs(options: ListLabsOptions = {}): Promise<ListedLab[]> {
     this.transport.assertNotIdleExpired();
     const listUrl = PORTAL_ORIGIN + PATHS.labsList;
     let response = await this.transport.request(listUrl);
     let html = await readText(response);
 
-    if (options.fromDate || options.toDate) {
+    const optionDates = labsDateFieldsFromOptions(options);
+    if (Object.keys(optionDates).length > 0) {
       const state = extractWebFormsState(html);
-      const fields: Record<string, string> = {};
-      if (options.fromDate) fields[LABS_LIST_FIELDS.fromDate] = options.fromDate;
-      if (options.toDate) fields[LABS_LIST_FIELDS.toDate] = options.toDate;
+      const cleanState = { ...state, hidden: omitFamilySliderFields(state.hidden) };
       response = await this.transport.request(listUrl, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: buildPostBackBody(state, fields),
+        body: buildPostBackBody(cleanState, optionDates, LABS_LIST_FIELDS.filterSubmit, ""),
       });
       html = await readText(response);
     }
 
-    // Refuse family-slider postbacks if present as actionable switch
-    if (/FamilySliderControl\d+\$au|FamilySliderControl\d+\$cu/i.test(html)) {
-      // Presence is OK (portal chrome); we simply never POST those fields.
+    const collected: ListedLab[] = [];
+    const seen = new Set<string>();
+    let currentPage = 1;
+    let pagesFetched = 0;
+
+    while (true) {
+      pagesFetched += 1;
+      for (const item of parseLabsListHtml(html)) {
+        const key = labListItemKey(item);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        collected.push({
+          ...item,
+          ...(item.hasDetail ? { refToken: encodeLabRef(item.ref) } : {}),
+        });
+      }
+
+      if (pagesFetched >= LABS_LIST_MAX_PAGES) break;
+      const nextPage = nextLabPagerPage(html, currentPage);
+      if (nextPage === undefined) break;
+
+      const state = extractWebFormsState(html);
+      const cleanState = { ...state, hidden: omitFamilySliderFields(state.hidden) };
+      const fields = {
+        ...labsDateFieldsFromHtml(html),
+        ...optionDates,
+      };
+      response = await this.transport.request(listUrl, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: buildPostBackBody(
+          cleanState,
+          fields,
+          `${LABS_LIST_FIELDS.pagerLinkPrefix}${nextPage}`,
+          "",
+        ),
+      });
+      html = await readText(response);
+      currentPage = nextPage;
     }
 
-    const items = parseLabsListHtml(html);
-    return items.map((item) => ({
-      ...item,
-      ...(item.hasDetail ? { refToken: encodeLabRef(item.ref) } : {}),
-    }));
+    return collected;
   }
 
   /** getLabResult — GET LabTestDetails.aspx?s&d&ls from a list-issued ref only. */
