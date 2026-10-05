@@ -1,8 +1,8 @@
 {
   "name": "clalit-mcp",
   "version": "0.1.0",
+  "private": true,
   "description": "CLI and MCP server for reading your own Clalit Health Services lab records, prescriptions, and lab orders.",
-  "mcpName": "io.github.netanelavr/clalit-mcp",
   "keywords": [
     "clalit",
     "mcp",
@@ -45,15 +45,5 @@
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vitest": "^3.0.9"
-  },
-  "bin": {
-    "clalit-mcp": "./packages/cli/src/main.ts"
-  },
-  "files": [
-    "packages/*/src",
-    "docs",
-    "README.md",
-    "LICENSE",
-    "SECURITY.md"
-  ]
+  }
 }
