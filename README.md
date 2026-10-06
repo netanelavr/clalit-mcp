@@ -6,6 +6,8 @@
 
 > Unofficial. Not affiliated with Clalit. Not a substitute for the official portal or clinical advice.
 
+The MCP server runs locally on your machine: you log in through your own browser, the session is stored only on your computer, and this project has no hosted backend and collects nothing. Note that whatever results your AI client (such as Claude) requests are passed to that client and are handled under its provider's privacy terms.
+
 ![Ask Claude about your own Clalit records (read-only)](docs/assets/chat-demo.png)
 
 ## Getting started with an AI assistant
