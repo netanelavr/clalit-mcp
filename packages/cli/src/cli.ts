@@ -1,6 +1,7 @@
 import { connect, decodeLabOrderRef, decodeLabRef } from "@clalit/core";
 import { writeFile } from "node:fs/promises";
 import { help } from "./commands.js";
+import { runBrowserLogin } from "./browser-login.js";
 import { runLoginHttp } from "./http-login.js";
 import { clearSession, loadSession } from "./store.js";
 
@@ -32,11 +33,19 @@ export async function runCli(args: string[]): Promise<number> {
 
   switch (cmd) {
     case "login": {
-      // --http is a harmless no-op alias (browser login is the only mode).
+      if (has(rest, "browser")) {
+        const url = flag(rest, "url");
+        return runBrowserLogin({
+          ...(url ? { url } : {}),
+          record: has(rest, "record"),
+          keepOpen: has(rest, "keep-open"),
+        });
+      }
+      // --http is a harmless no-op alias (loopback login is the default mode).
       const portRaw = flag(rest, "port");
       const port = portRaw ? Number(portRaw) : undefined;
       if (portRaw && (!Number.isInteger(port) || port! < 0 || port! > 65535)) {
-        console.error("Usage: clalit-mcp login [--id ID] [--port PORT] [--no-open]");
+        console.error("Usage: clalit-mcp login [--id ID] [--port PORT] [--no-open] | login --browser [--record] [--url URL] [--keep-open]");
         return 2;
       }
       return runLoginHttp({

@@ -12,13 +12,13 @@ export interface Command {
 
 export const COMMANDS: Record<string, Command> = {
   login: {
-    usage: "login [--id ID] [--port PORT] [--no-open]",
-    summary: "Browser CAPTCHA + SMS OTP sign-in (own machine).",
+    usage: "login [--id ID] [--port PORT] [--no-open] | login --browser [--record] [--url URL] [--keep-open]",
+    summary: "Sign in (own machine): loopback CAPTCHA + SMS page, or your own browser handed over.",
     description:
-      "Sign in to Clalit e-services on this machine via a loopback browser page (127.0.0.1). You enter Israeli ID, CAPTCHA, and SMS OTP in the browser. Nothing is solved automatically. Session cookies are stored locally.",
-    options: ["id", "port", "no-open"],
+      "Default: a loopback browser page (127.0.0.1) where you enter Israeli ID, CAPTCHA, and SMS OTP; nothing is solved automatically; session cookies are stored locally. --browser: Chrome opens on a profile of its own at Clalit Online's sign-in page, you sign in there by any road the site offers (permanent password, or SMS; CAPTCHA by hand), and once your personal page shows (or you press Enter) the browser's portal cookies are checked with one labs-list request and saved as the session. --record also writes login-record-<time>.json in the config directory: the sign-in's request shapes (paths, field names, value lengths and classes, cookie names) with no values, for building a sign-in that needs no browser.",
+    options: ["id", "port", "no-open", "browser", "record", "url", "keep-open"],
     notes:
-      "Requires residential/user IP. Datacenter hosts hit Imperva Error 16. No bot / Imperva / CAPTCHA bypass. `--http` is accepted as a no-op alias.",
+      "Requires residential/user IP. Datacenter hosts hit Imperva Error 16. No bot / Imperva / CAPTCHA bypass. --browser needs Node 22+ and Chrome, Chromium or Edge (CHROME_PATH picks one); its profile lives under the config directory. `--http` is accepted as a no-op alias.",
   },
   logout: {
     usage: "logout",

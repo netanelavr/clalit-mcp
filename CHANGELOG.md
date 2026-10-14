@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`login --browser`**: sign in in your own Chrome (permanent password or SMS; CAPTCHA by hand) and hand the signed-in cookies to the CLI, checked with one labs-list request before `session.json` is written; the browser's user agent stays with the session. `--record` writes a value-free record of the sign-in's request shapes for building a browserless sign-in.
 - Public repo cleanup: agent skill, docs, CI, GitHub-only install (no npm publish).
 - **CLI + MCP only** — `@clalit/core` stays a private workspace package, not a public SDK.
 - **Reads:** prescriptions list + issue status; lab orders list + detail (fixtures; no PDFs).

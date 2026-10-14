@@ -7,4 +7,6 @@ export interface ClalitSession {
   authenticatedAt: string;
   /** Soft idle TTL hint (ms). Portal TTL is unmeasured; ~30m idle is a safe default. */
   idleTtlMs?: number;
+  /** The browser's user agent when the session was handed over from one (`login --browser`). */
+  userAgent?: string;
 }
