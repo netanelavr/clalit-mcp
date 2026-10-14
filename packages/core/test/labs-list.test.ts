@@ -18,8 +18,13 @@ describe("parseLabsListHtml", () => {
     const html = readFileSync(join(fixtures, "labs-list.html"), "utf8");
     const items = parseLabsListHtml(html);
     expect(items).toHaveLength(2);
-    expect(items[0]!.name).toContain("ספירת דם");
-    expect(items[0]!.date).toBe("15/03/2025");
+    // date | lab section | referring doctor | test number | "הצגה": the section is the name, the link text never is.
+    expect(items[0]!.name).toBe("המטולוגיה");
+    expect(items[0]!.date).toBe("15.03.2025");
+    expect(items[0]!.doctor).toBe("פלונית אלמונית");
+    expect(items[0]!.testNumber).toBe("100000001");
+    expect(items[0]!.summary).toBe("פלונית אלמונית · 100000001");
+    expect(items[1]!.name).toBe("כימיה");
     expect(items[0]!.hasDetail).toBe(true);
     expect(items[0]!.ref).toEqual({ s: "opaqueS1", d: "20250315", ls: "opaqueLS1" });
     const token = encodeLabRef(items[0]!.ref);

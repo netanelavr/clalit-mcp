@@ -80,12 +80,23 @@ export function parseLabsListHtml(html: string): LabListItem[] {
 
     if (cells.length === 0 && !ref) return;
 
-    const name =
-      (link.text().replace(/\s+/g, " ").trim() ||
-        cells.find((c, i) => i > 0 && c.length > 0) ||
-        "") || "—";
-    const date = cells[0] ?? "";
-    const summary = cells.length > 2 ? cells.slice(2).join(" · ") : cells[1] !== name ? cells[1] : undefined;
+    // The live grid (2026-10): date | lab section | referring doctor | test number | actions ("הצגה").
+    // Each cell is a span whose id ends in dcArrivalDate / dcLabSectionName / dcDoctorName / dcStickerCode;
+    // without those ids the cells are read in that order. The action link's text is never the name.
+    const byId = (suffix: string): string | undefined => {
+      const text = row.find(`[id$='${suffix}']`).first().text().replace(/\s+/g, " ").trim();
+      return text || undefined;
+    };
+    const linkText = link.text().replace(/\s+/g, " ").trim();
+    // An action link ("הצגה") is not the row's name; a link whose text is a test name (older layout) is.
+    const actionLink = /^(הצגה|הצג|פרטים|show|view|details)$/i.test(linkText);
+    const plain = actionLink ? cells.filter((c) => c !== linkText) : cells;
+    const date = byId("dcArrivalDate") ?? plain[0] ?? "";
+    const section = byId("dcLabSectionName") ?? (actionLink ? plain[1] : linkText || plain[1]);
+    const doctor = byId("dcDoctorName") ?? plain[2];
+    const testNumber = byId("dcStickerCode") ?? plain[3];
+    const name = section || "—";
+    const summary = [doctor, testNumber].filter(Boolean).join(" · ") || undefined;
 
     if (ref) {
       const key = `${ref.s}|${ref.d}|${ref.ls}`;
@@ -98,6 +109,8 @@ export function parseLabsListHtml(html: string): LabListItem[] {
       date,
       name,
       ...(summary ? { summary } : {}),
+      ...(doctor ? { doctor } : {}),
+      ...(testNumber ? { testNumber } : {}),
       hasDetail: Boolean(ref),
     });
   });

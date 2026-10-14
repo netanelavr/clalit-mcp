@@ -1,21 +1,133 @@
 <!DOCTYPE html>
-<html>
+<html lang="he" dir="rtl">
 <head><title>פרטי בדיקת מעבדה</title></head>
 <body>
 <form method="post" action="./LabTestDetails.aspx?s=opaqueS1&amp;d=20250315&amp;ls=opaqueLS1" id="aspnetForm">
   <input type="hidden" name="__VIEWSTATE" value="/wEPDwUKLTEsZg9kFgICAQ9kFgIC" />
   <input type="hidden" name="__VIEWSTATEGENERATOR" value="DEF456" />
   <input type="hidden" name="__EVENTVALIDATION" value="/wEdAAJBBB" />
-  <h1 id="ctl00_ctl00_cphBody_bodyContent_lblTitle">ספירת דם</h1>
-  <span id="ctl00_ctl00_cphBody_bodyContent_lblDate">15/03/2025</span>
-  <table>
-    <tr><th>בדיקה</th><th>תוצאה</th><th>יחידות</th><th>טווח</th><th>הערה</th></tr>
-    <tr><td>המוגלובין</td><td>14.2</td><td>g/dL</td><td>12.0-16.0</td><td></td></tr>
-    <tr><td>WBC</td><td>7.1</td><td>K/uL</td><td>4.0-11.0</td><td></td></tr>
-  </table>
-  <div id="ctl00_ctl00_cphBody_bodyContent_lblRemark" class="remarks">תוצאה לדוגמה בלבד — לא נתונים רפואיים אמיתיים.</div>
-  <a id="ctl00_ctl00_cphBody_leftMenu_lnkDownloadPdf"
-     href="javascript:__doPostBack('ctl00$ctl00$cphBody$leftMenu$lnkDownloadPdf','')">הורד PDF</a>
+  <!-- The page's left menu: the PDF link posts back (live 2026-10). -->
+  <ul class="links_win">
+    <li><a onclick="javascript:openPrintWindow();" href="javascript:__doPostBack('ctl00$ctl00$cphLeftMenu$cphPageLeftMenu$ctl00$ctl00$ctl04','')">להדפיס את תוצאות הבדיקה</a></li>
+    <li><a onclick="javascript:Export('pdf');" href="javascript:__doPostBack('ctl00$ctl00$cphLeftMenu$cphPageLeftMenu$ctl00$ctl00$ctl07','')">לשמור את התוצאות כ־PDF</a></li>
+  </ul>
+  <!-- Header: lab section, test number, the member's details (not read) and the sample's time. Synthetic. -->
+  <div class="mobile_lab_test_details">
+    <h1 class="newAppTitle">
+      <span id="ctl00_ctl00_cphBody_bodyContent_lblLabSection" class="GlassboxClass">המטולוגיה | </span>
+      <span id="ctl00_ctl00_cphBody_bodyContent_lblPageSubtitle" class="lblPageSubtitle">בדיקה 100000001</span>
+    </h1>
+    <div class="whiteFloatingBox UserDetails">
+      <span class="MargTop40px GlassboxClass" id="ClientName"><b>שם: </b>פלונית אלמונית</span>
+      <span class="GlassboxClass" id="ClientIDNumber"><b>מספר תעודת זהות: </b>000000000</span>
+      <span><b>מועד קליטת הדגימה במעבדה: </b> 08:15 15.03.2025</span>
+      <span class="GlassboxClass"><b>מספר הבדיקה: </b> 100000001</span>
+    </div>
+  </div>
+  <div id="LabTestDetails" class="DispInlineBlock WidthMax">
+    <table class="TestResultGridTable ClalitGridTable" cellpadding="0" id="tblSingleTestResult" cellspacing="0">
+      <caption>תוצאות הבדיקה</caption>
+      <thead>
+        <tr>
+          <th scope="col"><span>שם הבדיקה</span></th>
+          <th scope="col"><span>תוצאה</span></th>
+          <th scope="col" class="LabGraphHeader"><span class="TextNoWrap">מיקום התוצאה בטווח התקין</span></th>
+          <th scope="col" class="LabTestSlaHeader"><span>זמן פענוח הבדיקה</span></th>
+          <th scope="col" class="LabTestMoreInfoHeader"><span>מידע נוסף</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- A test without a reference range: the graph column is empty. -->
+        <tr trtype="labData" class="TestResultGridRow ClalitGridRow">
+          <td class="LabTestNameCol"><span id="TestName">PT-INR</span></td>
+          <td class="LabTestMeasureUnitCol"><span class="DispInlineBlock"> 0.91 </span></td>
+          <td class="LabTestGraphColumn"></td>
+          <td class="LabSlaCol"><span id="Sla1"> 1 ימי עבודה </span></td>
+          <td class="LabTestMoreInfoCol">
+            <div class="row wrapper-test-result">
+              <div class="col-btn-lab"><span class="btn-test-result"><a href="javascript:void(0)" jsid="lnkOpenClose" class="infoIcon toggle toggleOpenCloseOutJS" onclick="hideAllLabDetails(); showLabDetails(this);return false;" title='הערות והסבר לבדיקת PT-INR' labtestname='PT-INR'> הערות והסבר </a></span></div>
+              <div class="col-btn-lab"><span class="btn-test-result"><a title="גרף תוצאות PT-INR" class="graphIcon" href="LabTestCompare.aspx?labId=opaqueLabId1&amp;labName=opaqueLabName1&amp;t=d">השוואת תוצאות</a></span></div>
+            </div>
+          </td>
+        </tr>
+        <tr class="MoreInfoTR container" style="display: none;">
+          <td colspan="5" class="LabTestMoreInfoTD">
+            <table width="100%"><tr><td colspan="3">
+              <div class="LabTestCommentDiv">
+                <h2><strong><span id="ctl00_ctl00_cphBody_bodyContent_DetailedTestsResult1_rptLabsList_ctl00_lblTestRemarks">הערות לבדיקה</span> - <span id="TestComment">PT-INR</span></strong></h2>
+                <br />
+                <p><strong>שם הבדיקה בעברית: בדיקת קרישת דם INR</strong><br>הסבר כללי על הבדיקה, לדוגמה בלבד.</p>
+              </div>
+            </td></tr>
+            <tr><td align="right" class="LabTestlnkAddToPersonalTestsRightTD" colspan="2"><a class="PL_ClalitGridCloseImg ClalitGridCloseImgMobile toggleOpenCloseInJS" href="javascript:void(0)" onclick="ResetLinksText(this); hideAllLabDetails();return false;" title='סגירת הערות עבור בדיקת PT-INR' jsid="CloseBtn">סגירת הערות עבור בדיקת PT-INR</a></td></tr>
+            </table>
+          </td>
+        </tr>
+        <!-- A test with a range, inside it: the bar holds min, the value and max; the out-of-range cells are placeholders. -->
+        <tr trtype="labData" class="TestResultGridRow ClalitGridRow">
+          <td class="LabTestNameCol"><span id="TestName">PT %</span></td>
+          <td class="LabTestMeasureUnitCol"><span class="DispInlineBlock"> 113 % </span></td>
+          <td class="LabTestGraphColumn">
+            <table summary="גרף הבדיקה - סרגל תוצאות" class="LabTestTableGraph LabTestGraphCol" style="visibility: hidden">
+              <tr>
+                <td jsid="left" class="LabGraphExtremeValue left"><table class="WidthMax"><tr><td rowspan="2"><img class="LabTestGraphAttention" style='display: none' src='/OnlineWeb/Images/warning_icon.png' alt="" /></td><td class="AlignCenter"><img src='/OnlineWeb/Images/negative_value_arrow.png' alt="" /></td></tr><tr><td class="LT_graphBadValue"><span title="הערך מחוץ לטווח">8.99</span></td></tr></table></td>
+                <td class="LabGraphCenter">
+                  <table><tr>
+                    <td class="AlignRight Width35px valignTop"><span title="ערך מינימלי" class="LABTD_JSC_MIN_VAL_TITLE"> 85</span></td>
+                    <td class="LT_BarGraph valignMid"><table summary="סמן"><tr><td class="AlignCenter"><img src='/OnlineWeb/Images/positive_value_arrow.png' alt="" /></td></tr><tr><td class="AlignCenter"><span title='ערך: 113' class="LT_graphNormalValue LeftPadding2px RightPadding2px"> 113</span></td></tr></table></td>
+                    <td class="AlignLeft Width35px valignTop"><span title="ערך מקסימלי" class="LABTD_JSC_MAX_VAL_TITLE"> 150</span></td>
+                  </tr></table>
+                </td>
+                <td jsid="right" class="LabGraphExtremeValue"><table class="AlignRight WidthMax"><tr><td rowspan="2"><img class="LabTestGraphAttention" style='display: none' src='/OnlineWeb/Images/warning_icon.png' alt="" /></td><td class="AlignCenter"><img src='/OnlineWeb/Images/negative_value_arrow.png' alt="" /></td></tr><tr><td class="LT_graphBadValue"><span title="הערך מחוץ לטווח">9.99</span></td></tr></table></td>
+              </tr>
+            </table>
+          </td>
+          <td class="LabSlaCol"><span id="Sla1"> 1 ימי עבודה </span></td>
+          <td class="LabTestMoreInfoCol"><div class="row wrapper-test-result"><div class="col-btn-lab"><span class="btn-test-result"><a href="javascript:void(0)" jsid="lnkOpenClose" class="infoIcon" title='הערות והסבר לבדיקת PT %' labtestname='PT %'> הערות והסבר </a></span></div><div class="col-btn-lab"><span class="btn-test-result"><a class="graphIcon" href="LabTestCompare.aspx?labId=opaqueLabId2&amp;labName=opaqueLabName2&amp;t=d">השוואת תוצאות</a></span></div></div></td>
+        </tr>
+        <tr class="MoreInfoTR container" style="display: none;"><td colspan="5" class="LabTestMoreInfoTD"><table><tr><td><div class="LabTestCommentDiv"><h2><strong><span>הערות לבדיקה</span> - <span id="TestComment">PT %</span></strong></h2><p>הסבר על PT %, לדוגמה בלבד.</p></div></td></tr></table></td></tr>
+        <!-- A test with a range, above it. -->
+        <tr trtype="labData" class="TestResultGridRow ClalitGridRow">
+          <td class="LabTestNameCol"><span id="TestName">APTT-sec</span></td>
+          <td class="LabTestMeasureUnitCol"><span class="DispInlineBlock"> 35.8 Sec </span></td>
+          <td class="LabTestGraphColumn">
+            <table summary="גרף הבדיקה - סרגל תוצאות" class="LabTestTableGraph LabTestGraphCol"><tr>
+              <td jsid="left" class="LabGraphExtremeValue left"><table><tr><td class="LT_graphBadValue"><span title="הערך מחוץ לטווח">8.99</span></td></tr></table></td>
+              <td class="LabGraphCenter"><table><tr>
+                <td><span title="ערך מינימלי" class="LABTD_JSC_MIN_VAL_TITLE"> 20.9</span></td>
+                <td class="LT_BarGraph valignMid"><table summary="סמן"><tr><td><span title='ערך: 35.8' class="LT_graphNormalValue"> 35.8</span></td></tr></table></td>
+                <td><span title="ערך מקסימלי" class="LABTD_JSC_MAX_VAL_TITLE"> 32.9</span></td>
+              </tr></table></td>
+              <td jsid="right" class="LabGraphExtremeValue"><table><tr><td class="LT_graphBadValue"><span title="הערך מחוץ לטווח">9.99</span></td></tr></table></td>
+            </tr></table>
+          </td>
+          <td class="LabSlaCol"><span id="Sla1"> 1 ימי עבודה </span></td>
+          <td class="LabTestMoreInfoCol"></td>
+        </tr>
+        <!-- A qualitative result with a number in front of it. -->
+        <tr trtype="labData" class="TestResultGridRow ClalitGridRow">
+          <td class="LabTestNameCol"><span id="TestName">TOXOPLASMA IgG</span></td>
+          <td class="LabTestMeasureUnitCol"><span class="DispInlineBlock"> 0.52 Negative </span></td>
+          <td class="LabTestGraphColumn"></td>
+          <td class="LabSlaCol"><span id="Sla1"> 2 ימי עבודה </span></td>
+          <td class="LabTestMoreInfoCol"></td>
+        </tr>
+        <!-- A text-only result. -->
+        <tr trtype="labData" class="TestResultGridRow ClalitGridRow">
+          <td class="LabTestNameCol"><span id="TestName">EPITHELIAL-SED</span></td>
+          <td class="LabTestMeasureUnitCol"><span class="DispInlineBlock"> FEW </span></td>
+          <td class="LabTestGraphColumn"></td>
+          <td class="LabSlaCol"><span id="Sla1"> 1 ימי עבודה </span></td>
+          <td class="LabTestMoreInfoCol"></td>
+        </tr>
+      </tbody>
+    </table>
+    <!-- The lab's remarks on particular tests. -->
+    <table class="LabTestNotes ClalitGridTable" cellpadding="0" cellspacing="0">
+      <tr><td class="BottomPadding2px"><span>הערות המעבדה</span></td></tr>
+      <tr><td class="TopPadding2px PaddingBottom20px"><span class="BoldStyle">APTT-sec</span><br /><span>הדגימה המוליטית <br /> תוצאה לדוגמה בלבד</span></td></tr>
+    </table>
+  </div>
 </form>
 </body>
 </html>
