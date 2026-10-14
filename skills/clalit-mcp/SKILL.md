@@ -54,11 +54,16 @@ npx tsx packages/cli/src/main.ts prescriptions --json
 npx tsx packages/cli/src/main.ts prescription-status --prescription NO --medication ID --form NAME --start DATE --section ID --json
 npx tsx packages/cli/src/main.ts lab-orders --json
 npx tsx packages/cli/src/main.ts lab-order --ref TOKEN --json
+npx tsx packages/cli/src/main.ts export --out DIR      # everything above into one folder, with a README for you to read first
 npx tsx packages/cli/src/main.ts refresh-session
 npx tsx packages/cli/src/main.ts logout
 ```
 
 Take `ref` and prescription row fields from list output. Do not invent tokens.
+
+When the user wants their whole history, a copy to keep, or many results at once, run `export` once and read the
+folder (its `README.md` first) instead of calling `lab` per result: one sign-in covers everything, and the folder
+outlives the session.
 
 Exit codes: `0` success, `1` operation failure, `2` usage, `3` login / Imperva block.
 

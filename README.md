@@ -53,10 +53,29 @@ npx tsx packages/cli/src/main.ts lab-document --ref <token> --out result.pdf
 npx tsx packages/cli/src/main.ts prescriptions --json
 npx tsx packages/cli/src/main.ts lab-orders --json
 npx tsx packages/cli/src/main.ts lab-order --ref <token-from-lab-orders> --json
+npx tsx packages/cli/src/main.ts export --out ~/health
 npx tsx packages/cli/src/main.ts help
 ```
 
 `login` opens a loopback browser page for ID, CAPTCHA, and SMS OTP. See [docs/LIVE-VERIFY.md](docs/LIVE-VERIFY.md).
+
+## Keep a copy of everything: `export`
+
+```sh
+npx tsx packages/cli/src/main.ts export                 # ./clalit-export-<today>/: labs (every result and its PDF), prescriptions, lab orders
+npx tsx packages/cli/src/main.ts export --out ~/health  # under that directory; --no-documents skips the PDFs
+```
+
+One sign-in, a few minutes, one folder: `labs/list.json` and one JSON per result under `labs/details/` with the PDF
+beside it under `labs/files/`, `prescriptions/list.json`, `lab-orders/` with each order's tests, and at the root a
+`README.md` that is the export's own data dictionary — what each folder holds, how a record is shaped, what the
+export does *not* contain — written for an AI assistant, with `CLAUDE.md` / `AGENTS.md` pointing at it, and
+`export-errors.json` for anything that failed. Open the folder in the Claude or ChatGPT desktop app and ask; or feed
+it to a database (see [liberate-labs](https://github.com/Urigo/liberate-labs), which loads it beside Maccabi and
+Blueprint results for cross-lab trends). The labs list is asked for from 01.01.1990 to today, far wider than the
+portal's own default range. A rerun into the same folder writes nothing it already has. The folder's layout follows
+[Health Records Export for Maccabi](https://github.com/RoniRachmani/health-records-export-for-maccabi), so one reader
+serves both funds. The ZIP-free folder is not encrypted: keep it where you keep your records.
 
 ## MCP
 

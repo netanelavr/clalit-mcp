@@ -1,6 +1,8 @@
-import { connect, decodeLabOrderRef, decodeLabRef } from "@clalit/core";
+import { connect, decodeLabOrderRef, decodeLabRef, exportAll, exportName } from "@clalit/core";
 import { writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { help } from "./commands.js";
+import { folderSink } from "./export-sink.js";
 import { runLoginHttp } from "./http-login.js";
 import { clearSession, loadSession } from "./store.js";
 
@@ -221,6 +223,28 @@ export async function runCli(args: string[]): Promise<number> {
         return 0;
       } catch (err) {
         console.error(err instanceof Error ? err.message : "lab-order failed");
+        return 1;
+      }
+    }
+    case "export": {
+      const client = await requireClient();
+      if (!client) return 3;
+      const dir = join(resolve(flag(rest, "out") ?? "."), exportName(Date.now()));
+      try {
+        const report = await exportAll(client, folderSink(dir), {
+          fromDate: flag(rest, "from"),
+          toDate: flag(rest, "to"),
+          documents: !has(rest, "no-documents"),
+          includeExpired: !has(rest, "current-only"),
+          log: (line) => console.log(line),
+        });
+        const width = Math.max(0, ...Object.keys(report.folders).map((k) => k.length));
+        for (const [folder, n] of Object.entries(report.folders).sort()) console.log(`  ${folder.padEnd(width)}  ${String(n).padStart(4)} files`);
+        for (const p of report.problems) console.log(`  problem: ${p.where}: ${p.what}`);
+        console.log(`${report.problems.length ? report.problems.length + " problems; " : ""}export in ${dir}`);
+        return report.stopped ? 3 : 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "export failed");
         return 1;
       }
     }
