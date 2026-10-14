@@ -12,6 +12,8 @@ Host: `https://e-services.clalit.co.il`
 
 No JSON auth API was observed. This is ASP.NET WebForms end-to-end.
 
+**Permanent-password road** (from a `login --browser --record` record, 2026-10-14, values never recorded): `GET /OnlineWeb/General/Login.aspx` is one form with `ctl00$cphBody$_loginView$tbUserId`, `tbUserName`, `tbPassword` (type=password), a BotDetect CAPTCHA (`LBD_VCID_c_general_login_ctl00_cphbody__loginview_captchalogin` hidden instance id, image at `/OnlineWeb/general/BotDetectCaptcha.ashx?get=image&c=…&t=…`, answer in `tbCaptchaLogin`), plus `__VIEWSTATE`/`__EVENTVALIDATION`; the page also offers `lbRegisterClientOTP` (the SMS road). The POST answers 302 → `/OnlineWeb/Services/FamilyHomePage.aspx`; the signed-in jar then holds `.ONLINEAUTH`, `ASP.NET_SessionId`, `HasOTP`, `TS…`, the Imperva `visid_incap_*`/`incap_ses_*` set and Glassbox `_cls_*`. The CAPTCHA is on this form too, so a password road cannot run unattended either — which is why `login --browser` hands the browser's sign-in over instead of replaying the form.
+
 ## Imperva
 
 The site is fronted by Imperva. Headless datacenter clients often receive **Error 16**. This package:
@@ -28,6 +30,14 @@ Form posts use **303 See Other** (PRG) so Refresh / double-Continue cannot repla
 
 After CAPTCHA Continue, the client POSTs to Clalit, follows redirects (or GETs the OTP page), and must reach SMS OTP **or** surface a clear error within **~30 seconds** (transport abort + captcha-check budget). Waiting pages auto-refresh every 2s so OTP / failure UI appears without a manual reload.
 
+## Your own browser, handed over (`login --browser`)
+
+`clalit-mcp login --browser` opens Chrome (or Chromium / Edge; `CHROME_PATH` picks one) on a profile of its own, `browser-profile/` under the config directory, at the portal's own sign-in page, and waits. You sign in there by whichever road Clalit Online gives you — the **permanent password**, or the SMS code — and type the CAPTCHA as on any visit. The CLI watches only which page the browser is on (host, path, and the names and types of the inputs on it; never their values). When a portal page past the sign-in is showing for two polls in a row — or you press Enter in the terminal — it reads the browser's cookies for `clalit.co.il`, imports them into a fresh jar, and checks them with **one** request for `LabsTestList.aspx`: only a 200 that is not a login page is accepted (a redirect anywhere, a bot challenge, or a jar without Imperva cookies fails closed with `BROWSER_SESSION_INCOMPLETE` and nothing is written). On success it writes `session.json` as the loopback login does, with the browser's user agent kept in it so later requests look like the same client; `connect()` sends that user agent from then on.
+
+Nothing is typed into the site for you, and nothing is solved or bypassed: the browser did the sign-in, exactly as it would without the CLI. It is the same handover the Playwright cookie warm already does for the Imperva cookies before the loopback login, taken to its end — which is what makes the permanent-password road usable from the CLI without replaying the password form. Needs Node 22+ (its `WebSocket`); drives the browser over the DevTools Protocol with no automation flag, so the browser is the ordinary one.
+
+`--record` additionally writes `login-record-<time>.json` (mode `0600`) in the config directory: every portal request the browser made during the sign-in (documents, XHR/fetch, form posts, the CAPTCHA image), reduced to shapes — method, path, query **keys** with each value's class and length (`digits(9)`, `alnum(8)`, `base64(2316)`), form **field names** with the same, a few request headers (the referer as a path), status, redirect paths, `Set-Cookie` **names**, and for each HTML page its forms, inputs (name, type, value shape), `__doPostBack` targets, script-set cookie **names**, redirects and sign-in links. Then the cookie names, domains and flags the browser ended with, and the path landed on. No value of yours is in it. It is what someone needs to build a sign-in that needs no browser, and it is safe to share.
+
 ## What we store
 
 Config directory (mode `0700`), resolved as:
@@ -40,7 +50,9 @@ Files:
 
 | File | Contents | Mode |
 | --- | --- | --- |
-| `session.json` | Serialized cookie jar + `authenticatedAt` | `0600` |
+| `session.json` | Serialized cookie jar + `authenticatedAt` (+ `userAgent` after `login --browser`) | `0600` |
+| `browser-profile/` | The browser profile `login --browser` opens (the browser's own cookie store, encrypted by the browser as usual) | `0700` |
+| `login-record-*.json` | `login --browser --record`: the sign-in's request **shapes** — paths, query keys, field names, value classes and lengths, cookie **names** (never a value) | `0600` |
 | `captcha-rejected-*.json` | Redacted CAPTCHA_REJECTED dump (HTML field shape + POST **keys** only; no ID/captcha/viewstate values) | `0600` |
 | `login-hops-*.json` | Redacted OTP→portal hop dump (URL/status/Set-Cookie **names**/jar **names** only) | `0600` |
 | `otp-redisplay-*.json` | When OTP POST returns 200 still showing the form: posted **field names**, `__EVENTTARGET` used, and (v2) a redacted `otpPost` summary: page kind, presence flags, missing/unexpected keys, source page, digit-stripped validation text, cookie **names** before/after, timings (never OTP/ID/cookie/viewstate values) | `0600` |

@@ -2,6 +2,7 @@ export * from "./version.js";
 export * from "./captcha.js";
 export * from "./login-diagnostics.js";
 export * from "./auth.js";
+export * from "./browser-session.js";
 export * from "./client.js";
 export * from "./constants.js";
 export * from "./errors.js";

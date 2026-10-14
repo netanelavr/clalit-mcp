@@ -56,7 +56,7 @@ npx tsx packages/cli/src/main.ts lab-order --ref <token-from-lab-orders> --json
 npx tsx packages/cli/src/main.ts help
 ```
 
-`login` opens a loopback browser page for ID, CAPTCHA, and SMS OTP. See [docs/LIVE-VERIFY.md](docs/LIVE-VERIFY.md).
+`login` opens a loopback browser page for ID, CAPTCHA, and SMS OTP. See [docs/LIVE-VERIFY.md](docs/LIVE-VERIFY.md). `login --browser` opens your own Chrome at Clalit Online's sign-in page instead: sign in there as you usually do — with your permanent password if you have one, so no SMS — and the signed-in cookies become the session ([docs/AUTH.md](docs/AUTH.md)).
 
 ## MCP
 

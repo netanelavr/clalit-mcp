@@ -51,6 +51,8 @@ const AUTH_MESSAGES: Record<string, string> = {
     "Checking CAPTCHA timed out. Clalit did not reach the SMS OTP step in time. Try again: clalit-mcp login",
   AUTHENTICATION_FAILED: "Clalit sign-in did not complete. Check the login step and try again.",
   OTP_SESSION_INCOMPLETE: otpSessionIncompleteMessage("missing_portal_defense_cookies"),
+  BROWSER_SESSION_INCOMPLETE:
+    "The browser's cookies do not make a signed-in session, so nothing was saved. Finish the sign-in in the browser window and try again.",
 };
 
 /**
