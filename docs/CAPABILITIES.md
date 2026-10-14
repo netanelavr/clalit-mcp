@@ -11,6 +11,7 @@
 | Prescription issue status (read) | `prescription-status` | `get_prescription_issue_status` | `getPrescriptionIssueStatus(...)` |
 | Lab orders list (הפניות לבדיקות מעבדה) | `lab-orders` | `list_lab_orders` | `listLabOrders()` |
 | Lab order detail | `lab-order --ref` | `get_lab_order` | `getLabOrder(ref)` |
+| Export everything to a folder | `export` | — | `exportAll(client, sink)` |
 
 `@clalit/core` is a **private** workspace package shared by the CLI and MCP server. It is not a published SDK — do not advertise or document installing it as a library.
 

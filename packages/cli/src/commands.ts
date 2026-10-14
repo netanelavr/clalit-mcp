@@ -74,6 +74,15 @@ export const COMMANDS: Record<string, Command> = {
     options: ["ref", "json"],
     notes: "No PDF/print download.",
   },
+  export: {
+    usage: "export [--out DIR] [--from DATE] [--to DATE] [--no-documents] [--current-only]",
+    summary: "Save everything this client can read into one folder.",
+    description:
+      "Writes ./clalit-export-<today>/ (or under --out): labs/ (list, one file per result, the PDFs), prescriptions/, lab-orders/, plus README.md (the export's data dictionary, written for an AI assistant), export-errors.json, CLAUDE.md and AGENTS.md. The labs list is asked for from 01.01.1990 to today unless --from/--to say otherwise. A rerun into the same folder writes nothing it already has.",
+    options: ["out", "from", "to", "no-documents", "current-only"],
+    notes:
+      "Requests go one at a time, 300 ms apart. An item that fails is listed in export-errors.json and the export goes on; an ended session stops it and keeps what was collected. --current-only leaves expired prescriptions out. Read-only, own record only.",
+  },
   "refresh-session": {
     usage: "refresh-session",
     summary: "Optional soft keep-alive via RefreshSession.aspx.",

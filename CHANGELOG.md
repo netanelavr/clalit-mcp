@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`export`**: everything the client reads into one folder — labs (every result and its PDF), prescriptions, lab orders — with a `README.md` data dictionary for assistants, `export-errors.json`, `CLAUDE.md`/`AGENTS.md`; paced, resumable into the same folder, stops cleanly on an ended session. Folder layout follows Health Records Export for Maccabi.
 - Public repo cleanup: agent skill, docs, CI, GitHub-only install (no npm publish).
 - **CLI + MCP only** — `@clalit/core` stays a private workspace package, not a public SDK.
 - **Reads:** prescriptions list + issue status; lab orders list + detail (fixtures; no PDFs).
