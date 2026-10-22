@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { ReauthenticationRequired } from "../src/errors.js";
+import { ReauthenticationRequired, UpstreamError } from "../src/errors.js";
 import { exportAll, exportName, isoDate, safeTitle, shortHash, type ExportClient, type ExportSink } from "../src/export/index.js";
 import { encodeLabRef, parseLabDetailHtml, parseLabsListHtml } from "../src/labs/index.js";
 import { parseLabOrderDetailHtml, parseLabOrdersListHtml, encodeLabOrderRef } from "../src/lab-orders/index.js";
@@ -31,7 +31,7 @@ class MemorySink implements ExportSink {
 }
 
 /** A client over the fixtures: every list row's ref answers with the one detail fixture. */
-function fakeClient(opts: { failDocument?: boolean; endSessionAt?: number } = {}) {
+function fakeClient(opts: { failDocument?: boolean; noDocument?: boolean; endSessionAt?: number } = {}) {
   const calls: string[] = [];
   const labs = parseLabsListHtml(read("labs-list.html")).map((item) => ({ ...item, refToken: encodeLabRef(item.ref) }));
   const orders = parseLabOrdersListHtml(read("lab-orders-list.html")).map((item) => ({ ...item, refToken: item.hasDetail ? encodeLabOrderRef(item.ref) : undefined }));
@@ -44,11 +44,17 @@ function fakeClient(opts: { failDocument?: boolean; endSessionAt?: number } = {}
       calls.push("getLabResult");
       if (opts.endSessionAt !== undefined && calls.length >= opts.endSessionAt) throw new ReauthenticationRequired();
       const item = labs.find((l) => l.refToken === token)!;
-      return parseLabDetailHtml(read("lab-detail.html"), item.ref);
+      const detail = parseLabDetailHtml(read("lab-detail.html"), item.ref);
+      if (opts.noDocument) {
+        const { documentEventTarget: _t, ...rest } = detail;
+        return { ...rest, hasDocument: false };
+      }
+      return detail;
     },
     async getLabDocument(token) {
       calls.push("getLabDocument");
-      if (opts.failDocument) throw new Error("No download control on this result.");
+      if (opts.noDocument) throw new UpstreamError("NO_DOCUMENT");
+      if (opts.failDocument) throw new Error("The Clalit request could not be completed (network error).");
       const item = labs.find((l) => l.refToken === token)!;
       return { ref: item.ref, contentType: "application/pdf", filename: "lab.pdf", bytes: new Uint8Array(Buffer.from("%PDF-1.4 " + token.slice(0, 6))) };
     },
@@ -130,12 +136,35 @@ describe("exportAll", () => {
     expect(calls.slice(before).filter((c) => c.startsWith("getLabResult") || c.startsWith("getLabDocument"))).toEqual([]);
   });
 
-  test("files a result without a document as a problem and goes on; nothing from the record is in the problem", async () => {
+  test("a result the portal offers no PDF for is skipped without a request, on a rerun too, and is not a problem", async () => {
+    const { client, calls, labs } = fakeClient({ noDocument: true });
+    const withDetail = labs.filter((l) => l.hasDetail).length;
+    const sink = new MemorySink();
+    const report = await exportAll(client, sink, clock);
+    expect(report.problems).toEqual([]);
+    expect(report.withoutDocument).toBe(withDetail);
+    expect(calls.filter((c) => c === "getLabDocument")).toEqual([]); // the detail already said so
+    expect([...sink.files.keys()].filter((n) => n.startsWith("labs/files/"))).toEqual([]);
+    expect([...sink.files.keys()].filter((n) => n.startsWith("labs/details/"))).toHaveLength(withDetail);
+    expect(sink.json("export-errors.json")).toEqual([]);
+    const readme = sink.files.get("README.md") as string;
+    expect(readme).toContain(`(${withDetail} results have none)`);
+    expect(readme).toContain("Nothing: every request was answered.");
+
+    // A rerun has the details on disk, so it asks the reader, which answers NO_DOCUMENT: still not a problem.
+    const again = await exportAll(client, sink, clock);
+    expect(again.problems).toEqual([]);
+    expect(again.withoutDocument).toBe(withDetail);
+    expect(calls.filter((c) => c === "getLabDocument")).toHaveLength(withDetail);
+  });
+
+  test("files a document that fails to download as a problem and goes on; nothing from the record is in the problem", async () => {
     const { client, labs } = fakeClient({ failDocument: true });
     const sink = new MemorySink();
     const report = await exportAll(client, sink, clock);
+    expect(report.withoutDocument).toBe(0);
     expect(report.problems).toHaveLength(labs.filter((l) => l.hasDetail).length);
-    expect(report.problems[0]).toMatchObject({ what: "No download control on this result.", at: "2026-10-14T10:00:00.000Z" });
+    expect(report.problems[0]).toMatchObject({ what: "The Clalit request could not be completed (network error).", at: "2026-10-14T10:00:00.000Z" });
     expect(report.problems[0]!.where).toMatch(/^labs\/files\/.*\.pdf$/);
     expect([...sink.files.keys()].filter((n) => n.startsWith("labs/details/"))).toHaveLength(labs.filter((l) => l.hasDetail).length);
     expect(sink.files.get("README.md")).toContain("## What this export failed to collect\n\n- `labs/files/");

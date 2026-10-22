@@ -14,7 +14,7 @@
  * and what was collected stays. A rerun into the same folder writes nothing it already has.
  */
 import { createHash } from "node:crypto";
-import { ReauthenticationRequired } from "../errors.js";
+import { ClalitError, ReauthenticationRequired } from "../errors.js";
 import type { LabDocument, LabResultDetail } from "../labs/types.js";
 import type { LabOrderDetail } from "../lab-orders/types.js";
 import type { PrescriptionListItem } from "../prescriptions/types.js";
@@ -65,6 +65,8 @@ export interface ExportReport {
   /** Files written or kept, per top folder. */
   folders: Record<string, number>;
   problems: ExportProblem[];
+  /** Lab results the portal offers no PDF for: skipped, not failures. */
+  withoutDocument: number;
   /** True when the session ended before the export finished; what was collected is kept. */
   stopped: boolean;
 }
@@ -147,6 +149,7 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
     count(rel);
   };
   let stopped = false;
+  let withoutDocument = 0;
 
   try {
     // ---- labs ----
@@ -164,12 +167,13 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
       if (seen.has(name)) name += "-" + i;
       seen.add(name);
       const rel = `labs/details/${name}.json`;
+      let detail: LabResultDetail | undefined;
       if (await sink.exists(rel)) {
         count(rel);
       } else {
         try {
           await sleep(pace);
-          const detail = await client.getLabResult(item.refToken);
+          detail = await client.getLabResult(item.refToken);
           await putJson(rel, wrap("lab-result", detail, { list: archived[i] }));
         } catch (e) {
           if (e instanceof ReauthenticationRequired) throw e;
@@ -181,6 +185,9 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
         const pdf = `labs/files/${name}.pdf`;
         if (await sink.exists(pdf)) {
           count(pdf);
+        } else if (detail && !detail.hasDocument) {
+          // The portal offers no PDF for this result: nothing to fetch, and not a failure.
+          withoutDocument += 1;
         } else {
           try {
             await sleep(pace);
@@ -189,13 +196,15 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
             count(pdf);
           } catch (e) {
             if (e instanceof ReauthenticationRequired) throw e;
-            // A result without a document (the detail page offers no download) is not a failure: the detail says so.
-            problem(pdf, e);
+            // On a rerun the detail is on disk and was not read again; the reader says there is no PDF.
+            if (e instanceof ClalitError && e.code === "NO_DOCUMENT") withoutDocument += 1;
+            else problem(pdf, e);
           }
         }
       }
       if ((i + 1) % 10 === 0 || i === labs.length - 1) log(`  ${i + 1}/${labs.length}`);
     }
+    if (withoutDocument) log(`  ${withoutDocument} ${withoutDocument === 1 ? "result has" : "results have"} no PDF on the portal (not an error)`);
 
     // ---- prescriptions ----
     log("prescriptions");
@@ -242,13 +251,13 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
   }
 
   await sink.putJson("export-errors.json", problems);
-  await sink.putText("README.md", readme({ startedAt, folders, problems, stopped, fromDate, toDate, documents }));
+  await sink.putText("README.md", readme({ startedAt, folders, problems, stopped, fromDate, toDate, documents, withoutDocument }));
   await sink.putText("CLAUDE.md", "This folder's instructions are in README.md, beside this file:\n\n@README.md\n");
   await sink.putText("AGENTS.md", "Read README.md, beside this file, before anything else, and follow it: it is this folder's\ninstructions — what the export holds, what it lacks and how its records are shaped.\n");
-  return { folders, problems, stopped };
+  return { folders, problems, stopped, withoutDocument };
 }
 
-function readme(r: { startedAt: string; folders: Record<string, number>; problems: ExportProblem[]; stopped: boolean; fromDate: string; toDate: string; documents: boolean }): string {
+function readme(r: { startedAt: string; folders: Record<string, number>; problems: ExportProblem[]; stopped: boolean; fromDate: string; toDate: string; documents: boolean; withoutDocument: number }): string {
   const has = (f: string) => (r.folders[f] ?? 0) > 0;
   const failedIn = new Set(r.problems.map((p) => p.where.split("/")[0]));
   const missing = ["labs", "prescriptions", "lab-orders"].filter((f) => !has(f));
@@ -279,7 +288,7 @@ portal; the portal's own default is far shorter). \`list.json\` is every row of 
 \`data.analytes[]\` with \`name\`, \`result\` (the text as shown, unit included: \`113 %\`, \`0.52 Negative\`, \`FEW\`),
 \`value\` (its leading number), \`units\`, \`qualifier\` when present, \`referenceRange\`, \`rangeMin\`/\`rangeMax\` (numbers),
 \`flag\` (\`L\` or \`H\` only), and \`turnaround\`, \`explanation\`, \`compare\` when the page has them; \`data.date\`,
-\`data.time\`, \`data.testNumber\` from the header, \`data.notes[]\` the lab's remarks, \`list\` the row it came from.${r.documents ? " `files/<same name>.pdf` is the portal's own PDF of the result where it offers one." : ""}` : ""}
+\`data.time\`, \`data.testNumber\` from the header, \`data.notes[]\` the lab's remarks, \`list\` the row it came from.${r.documents ? ` \`files/<same name>.pdf\` is the portal's own PDF of the result where it offers one${r.withoutDocument ? ` (${r.withoutDocument} ${r.withoutDocument === 1 ? "result has" : "results have"} none)` : ""}; a result without one says \`hasDocument: false\` in its detail, and that is not an error.` : ""}` : ""}
 ${has("prescriptions") ? `
 **\`prescriptions/\`** · ${files(r.folders.prescriptions)} — \`list.json\`: prescriptions with their medicines
 (\`prescriptionNo\`, \`prescriberName\` when shown, \`medicines[]\` with \`medicineId\`, \`medicineName\`, \`medicineFormName\`,

@@ -22,6 +22,7 @@ Exit codes: `0` success, `1` operation failure, `2` usage, `3` login / Imperva b
 
 `export` writes `clalit-export-<today>/` (Israel's calendar) with `labs/`, `prescriptions/`, `lab-orders/` and the
 root files `README.md` (the export's data dictionary, for an assistant), `export-errors.json`, `CLAUDE.md`, `AGENTS.md`.
-Requests are paced 300 ms apart; a failed item is filed and the export continues; an ended session stops it with
+Requests are paced 300 ms apart; a failed item is filed and the export continues (a result the portal has no PDF for is
+skipped, not filed: its detail says `hasDocument: false`); an ended session stops it with
 exit `3` and keeps what was collected (rerun into the same folder to continue). `--from`/`--to` filter labs only
 (default `01.01.1990` to today); prescriptions and lab orders are always exported in full. Reads only, own record only.

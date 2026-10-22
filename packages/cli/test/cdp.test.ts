@@ -43,8 +43,10 @@ describe.skipIf(!canRun)("DevTools client (headless browser)", () => {
   const browsers: number[] = [];
   afterEach(async () => {
     for (const pid of browsers.splice(0)) {
-      if (alive(pid)) process.kill(pid, "SIGTERM");
-      await until(() => !alive(pid), 5000);
+      // The browser has a process group of its own; its helpers can outlive it and keep writing to the profile.
+      const group = process.platform === "win32" ? pid : -pid;
+      if (alive(group)) process.kill(group, "SIGTERM");
+      await until(() => !alive(group), 5000);
     }
     for (const dir of profiles.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
   });
