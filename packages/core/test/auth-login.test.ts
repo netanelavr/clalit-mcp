@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { ClalitAuth, CAPTCHA_CHECK_BUDGET_MS } from "../src/auth.js";
 import { AuthenticationError, otpSessionIncompleteMessage } from "../src/errors.js";
 import { extractOtpEventTarget } from "../src/captcha.js";
@@ -89,6 +89,11 @@ function sessionCookieNames(session: { cookies: { cookies?: Array<{ key?: string
 }
 
 const prevConfigDir = process.env.CLALIT_CONFIG_DIR;
+
+// Login failures write diagnostics to the config dir; keep them out of ~/.config.
+beforeEach(() => {
+  process.env.CLALIT_CONFIG_DIR = mkdtempSync(join(tmpdir(), "clalit-test-"));
+});
 
 afterEach(() => {
   if (prevConfigDir === undefined) delete process.env.CLALIT_CONFIG_DIR;
