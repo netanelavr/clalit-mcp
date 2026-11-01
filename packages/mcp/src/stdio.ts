@@ -1,172 +1,55 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import { PACKAGE_VERSION } from "@clalit/core";
-import {
-  getLabDocumentTool,
-  getLabOrderTool,
-  getLabResultTool,
-  getPrescriptionIssueStatusTool,
-  listLabsSchema,
-  listLabsTool,
-  listLabOrdersTool,
-  listPrescriptionsSchema,
-  listPrescriptionsTool,
-  documentSchema,
-  labOrderRefSchema,
-  prescriptionIssueStatusSchema,
-  refSchema,
-} from "./tools.js";
+import { createMcpServer } from "./server.js";
+import { SessionManager } from "./session.js";
+import { setClientSource } from "./tools.js";
 
-const INSTRUCTIONS = [
-  "Unofficial Clalit own-account reader (read-only).",
-  "Unaffiliated with Clalit Health Services.",
-  "Tools: list_labs → get_lab_result / get_lab_document; list_prescriptions → get_prescription_issue_status; list_lab_orders → get_lab_order.",
-  "Never invent portal query params. Never switch family members.",
-  "Sign-in is interactive CAPTCHA+SMS on the user's machine; Imperva blocks datacenter IPs.",
-  "Preserve Hebrew source text, units, ranges, and dates. Lab PDFs are original bytes; prescription/lab-order PDFs are out of scope.",
-  "MedicalReferrals.aspx is not implemented.",
-].join(" ");
+const empty = { type: "object" as const, properties: {} };
 
 export async function startStdioServer(): Promise<void> {
-  const server = new Server(
-    { name: "clalit-mcp", version: PACKAGE_VERSION },
-    { instructions: INSTRUCTIONS, capabilities: { tools: {} } },
-  );
+  const session = new SessionManager();
+  await session.start();
+  // Every tool call goes through the one live client, so the keep-alive covers it.
+  setClientSource(() => session.client());
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  const server = createMcpServer({
+    instructions:
+      "When a tool says the user must sign in, call clalit_login and give the user the link it returns; the user signs in on that page (ID, CAPTCHA, SMS code). Never ask for the ID or codes in the chat.",
     tools: [
       {
-        name: "list_labs",
+        name: "clalit_login",
         description:
-          "List the authenticated owner's Clalit laboratory history (LabsTestList.aspx), walking every pager page.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            fromDate: { type: "string", description: "Optional from-date (dd.MM.yyyy). list_labs walks all pager pages." },
-            toDate: { type: "string", description: "Optional to-date (dd.MM.yyyy)." },
-          },
-        },
+          "Get the link where the user signs in to Clalit (ID, CAPTCHA and SMS code are typed on that page, never in the chat). Returns the current status when already signed in.",
+        inputSchema: empty,
       },
       {
-        name: "get_lab_result",
-        description:
-          "Read one lab result detail using a ref token from list_labs (LabTestDetails.aspx).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            ref: { type: "string", description: "Opaque refToken from list_labs." },
-          },
-          required: ["ref"],
-        },
+        name: "clalit_session_status",
+        description: "Whether this server is signed in to Clalit, since when, until when, and the sign-in link when it is not.",
+        inputSchema: empty,
       },
       {
-        name: "get_lab_document",
-        description:
-          "Download the original lab PDF for a list_labs ref (POST download control).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            ref: { type: "string", description: "Opaque refToken from list_labs." },
-          },
-          required: ["ref"],
-        },
-      },
-      {
-        name: "list_prescriptions",
-        description:
-          "List the authenticated owner's prescriptions / מרשמים (PatientPrescriptionsex.aspx).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            fromDate: { type: "string", description: "Optional from-date (portal format)." },
-            toDate: { type: "string", description: "Optional to-date (portal format)." },
-            includeExpired: {
-              type: "boolean",
-              description: "Include expired prescriptions when true.",
-            },
-          },
-        },
-      },
-      {
-        name: "get_prescription_issue_status",
-        description:
-          "Read pharmacy issue status for one medicine row (IssueDrugsByPatientReceiptId). Values from list_prescriptions only; not a purchase write.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            prescriptionNo: { type: "string" },
-            medicationID: { type: "string" },
-            medicationFormName: { type: "string" },
-            medicationStartDate: { type: "string" },
-            sectionId: { type: "string" },
-            currStatusValue: { type: "string" },
-          },
-          required: [
-            "prescriptionNo",
-            "medicationID",
-            "medicationFormName",
-            "medicationStartDate",
-            "sectionId",
-          ],
-        },
-      },
-      {
-        name: "list_lab_orders",
-        description:
-          "List the authenticated owner's lab orders / הפניות לבדיקות מעבדה (LabOrderList.aspx). Not MedicalReferrals.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
-        name: "get_lab_order",
-        description:
-          "Read one lab-order detail using a ref token from list_lab_orders (LabOrderDetails.aspx?ord=). No PDF.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            ref: { type: "string", description: "Opaque refToken from list_lab_orders." },
-          },
-          required: ["ref"],
-        },
+        name: "clalit_logout",
+        description: "Sign out of Clalit here: forget the saved session.",
+        inputSchema: empty,
       },
     ],
-  }));
-
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const name = request.params.name;
-    const args = request.params.arguments ?? {};
-    try {
-      let result: unknown;
-      if (name === "list_labs") result = await listLabsTool(listLabsSchema.parse(args));
-      else if (name === "get_lab_result") result = await getLabResultTool(refSchema.parse(args));
-      else if (name === "get_lab_document")
-        result = await getLabDocumentTool(documentSchema.parse(args));
-      else if (name === "list_prescriptions")
-        result = await listPrescriptionsTool(listPrescriptionsSchema.parse(args));
-      else if (name === "get_prescription_issue_status")
-        result = await getPrescriptionIssueStatusTool(prescriptionIssueStatusSchema.parse(args));
-      else if (name === "list_lab_orders") result = await listLabOrdersTool();
-      else if (name === "get_lab_order")
-        result = await getLabOrderTool(labOrderRefSchema.parse(args));
-      else throw new Error(`Unknown tool: ${name}`);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "tool failed";
-      return {
-        isError: true,
-        content: [{ type: "text", text: message }],
-      };
-    }
+    async call(name) {
+      if (name === "clalit_login") {
+        const status = await session.status();
+        if (status.state === "signed_in") return { ...status, message: "Already signed in." };
+        return {
+          ...status,
+          message: `Ask the user to open ${status.signInUrl} and sign in there, then try the request again.`,
+        };
+      }
+      if (name === "clalit_session_status") return session.status();
+      if (name === "clalit_logout") {
+        await session.signOut();
+        return { state: "signed_out", message: "Signed out; the saved session is gone." };
+      }
+      return undefined;
+    },
   });
-
   const transport = new StdioServerTransport();
+  transport.onclose = () => session.stop();
   await server.connect(transport);
 }
