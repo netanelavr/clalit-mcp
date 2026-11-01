@@ -12,11 +12,26 @@ export const TOOL_NAMES = [
   "get_lab_order",
 ] as const;
 
-export async function getClient(): Promise<ClalitClient> {
+/**
+ * Where the tools get their signed-in client. The default opens the saved
+ * session file on every call; the stdio server swaps in its one live,
+ * kept-alive client (session.ts).
+ */
+let clientSource: () => Promise<ClalitClient> = clientFromSessionFile;
+
+export function setClientSource(source: () => Promise<ClalitClient>): void {
+  clientSource = source;
+}
+
+export function getClient(): Promise<ClalitClient> {
+  return clientSource();
+}
+
+async function clientFromSessionFile(): Promise<ClalitClient> {
   const session = await loadSession();
   if (!session) {
     throw new Error(
-      "Not signed in. On your Mac run: npx tsx packages/cli/src/main.ts login (browser CAPTCHA + SMS OTP). Cloud/datacenter IPs are blocked by Imperva.",
+      "Not signed in. On your computer run: npx tsx packages/cli/src/main.ts login (browser CAPTCHA + SMS OTP). Cloud/datacenter IPs are blocked by Imperva.",
     );
   }
   return connect(session);

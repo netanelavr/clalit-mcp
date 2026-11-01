@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **MCP server**: sign-in and keep-alive live in the server. `clalit_login` returns a link to a sign-in page the server serves on `localhost:8765` (ID, CAPTCHA and SMS code are typed there, never in the chat, with a chosen session length of 1 hour to 1 week); the session is kept alive with `RefreshSession.aspx` while the server runs; `clalit_session_status`, `clalit_logout`. A session from the CLI is shared. The keeper ends a session only when the portal demands a sign-in; a network error or an Imperva hiccup keeps `session.json` and retries, and `checkSession()` reports a 5xx as a retryable error. Ported from [tadnir/clalit-mcp](https://github.com/tadnir/clalit-mcp) by Michael Tadnir. The `login` pages use relative links, so they also work behind a path prefix ([docs/HOSTING.md](docs/HOSTING.md)).
+- **Session**: a saved session records its last use (`lastUsedAt`), so a fresh process measures idleness from there and not from the sign-in — a session a keep-alive had held for 30+ minutes was being refused.
+- **`keep-alive`** (CLI): holds the session open from a second terminal while a long `export` runs; the portal drops an idle session after ~10 minutes.
+
 ## 2026-10-22
 
 - **`export`**: a lab result the portal offers no PDF for is skipped (counted in the README), no longer filed in `export-errors.json`; on a first run it costs no request. `NO_DOCUMENT` has a message of its own.

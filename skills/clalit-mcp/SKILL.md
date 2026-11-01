@@ -83,7 +83,9 @@ Only when clalit-mcp MCP tools are already configured in the host. From a checko
 }
 ```
 
-Tools: `list_labs`, `get_lab_result`, `get_lab_document`, `list_prescriptions`, `get_prescription_issue_status`, `list_lab_orders`, `get_lab_order`. Session must exist from `login` first.
+Tools: `list_labs`, `get_lab_result`, `get_lab_document`, `list_prescriptions`, `get_prescription_issue_status`, `list_lab_orders`, `get_lab_order`, plus `clalit_login`, `clalit_session_status` and `clalit_logout`.
+
+When a tool says nobody is signed in, call `clalit_login` and give the user the link it returns. The user signs in on that page; with MCP, never ask for the ID, CAPTCHA or SMS code in the chat. The server keeps the session alive while it runs, until the length the user picked on the page.
 
 ## Privacy
 

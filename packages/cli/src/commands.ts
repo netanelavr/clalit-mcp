@@ -83,6 +83,14 @@ export const COMMANDS: Record<string, Command> = {
     notes:
       "Requests go one at a time, 300 ms apart. An item that fails is listed in export-errors.json and the export goes on (a result the portal has no PDF for is skipped, not listed); an ended session stops it and keeps what was collected. --current-only leaves expired prescriptions out. Read-only, own record only.",
   },
+  "keep-alive": {
+    usage: "keep-alive [--every MINUTES]",
+    summary: "Hold the session open while you work in another terminal.",
+    description:
+      "Requests RefreshSession.aspx every few minutes (default 4; the portal ends a session after about ten idle minutes), checks that a signed-in page still opens, and saves the refreshed cookies, until Ctrl-C. Run it in a second terminal beside `export` or `tools/sitemap.mts` so a long run does not end on an expired session. Exits with 3 when the portal ended the session.",
+    options: ["every"],
+    notes: "Does not extend a session beyond the portal's own policy; it only keeps an existing one from idling out. The MCP server does this on its own while it runs.",
+  },
   "refresh-session": {
     usage: "refresh-session",
     summary: "Optional soft keep-alive via RefreshSession.aspx.",
@@ -93,7 +101,7 @@ export const COMMANDS: Record<string, Command> = {
     usage: "mcp",
     summary: "Run the stdio MCP server.",
     description:
-      "Exposes list_labs, get_lab_result, get_lab_document, list_prescriptions, get_prescription_issue_status, list_lab_orders, get_lab_order for local agents.",
+      "Exposes list_labs, get_lab_result, get_lab_document, list_prescriptions, get_prescription_issue_status, list_lab_orders, get_lab_order, plus clalit_login, clalit_session_status and clalit_logout. While it runs it keeps the Clalit session alive and serves its own sign-in page (see docs/MCP.md).",
     options: [],
   },
   help: {

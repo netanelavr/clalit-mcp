@@ -124,6 +124,9 @@ export class ClalitTransport {
     this.#userAgent = options.userAgent ?? options.session?.userAgent ?? DEFAULT_USER_AGENT;
     this.#idleTtlMs = options.session?.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
     this.#authenticatedAt = options.session?.authenticatedAt;
+    // A saved session that has been used since sign-in (a keep-alive, an export) is idle from then, not from sign-in.
+    const lastUsed = options.session?.lastUsedAt ? Date.parse(options.session.lastUsedAt) : NaN;
+    if (Number.isFinite(lastUsed) && lastUsed > 0) this.#lastRequestAt = lastUsed;
     this.#onAfterCookieClear = options.onAfterCookieClear;
     // Await restore before any request: enqueue on the same serial queue (not fire-and-forget).
     if (options.session?.cookies) {
@@ -247,6 +250,7 @@ export class ClalitTransport {
         authenticatedAt: this.#authenticatedAt,
         idleTtlMs: this.#idleTtlMs,
         ...(this.#userAgent !== DEFAULT_USER_AGENT ? { userAgent: this.#userAgent } : {}),
+        ...(this.#lastRequestAt ? { lastUsedAt: new Date(this.#lastRequestAt).toISOString() } : {}),
       };
     });
   }

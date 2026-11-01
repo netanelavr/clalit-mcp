@@ -112,9 +112,18 @@ Find your node path with `which node`. Quit Claude fully (Cmd+Q) and reopen.
 }
 ```
 
+### Signing in from the assistant
+
+A session made with `login` is picked up. Without one, the tools answer with a link to a sign-in page the server serves itself on `http://localhost:8765/` (`clalit_login` returns the same link): open it, pick how long to stay signed in (1 hour to 1 week), and enter the ID, the CAPTCHA and the SMS code there — only ever on that page, never in the chat. While the server runs it keeps the session alive and signs out at the end of the length you picked ([docs/MCP.md](docs/MCP.md)).
+
 ### Tools
 
-`list_labs`, `get_lab_result`, `get_lab_document`, `list_prescriptions`, `get_prescription_issue_status`, `list_lab_orders`, `get_lab_order`
+| Tool | What it reads |
+| --- | --- |
+| `list_labs`, `get_lab_result`, `get_lab_document` | Lab history, one result, the original lab PDF |
+| `list_prescriptions`, `get_prescription_issue_status` | Prescriptions and their pharmacy issue status |
+| `list_lab_orders`, `get_lab_order` | Lab orders and one order's detail |
+| `clalit_login`, `clalit_session_status`, `clalit_logout` | The sign-in link, whether a session is live and until when, and sign-out |
 
 ## License
 
