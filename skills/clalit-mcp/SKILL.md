@@ -54,6 +54,10 @@ npx tsx packages/cli/src/main.ts prescriptions --json
 npx tsx packages/cli/src/main.ts prescription-status --prescription NO --medication ID --form NAME --start DATE --section ID --json
 npx tsx packages/cli/src/main.ts lab-orders --json
 npx tsx packages/cli/src/main.ts lab-order --ref TOKEN --json
+npx tsx packages/cli/src/main.ts documents --source visit_summaries --json   # hospital_summaries | medical_approvals | form17
+npx tsx packages/cli/src/main.ts document --ref TOKEN --out /tmp/clalit-doc.pdf
+npx tsx packages/cli/src/main.ts records --source diagnoses --json   # sensitivities | chronic_medications | medicines_purchased | medication_approvals | imaging_clinics | imaging_hospitals | imaging_external | hospital_visits | hospital_labs | referrals | appointments | recommendations | vaccinations | blood_type
+npx tsx packages/cli/src/main.ts record-document --ref TOKEN --out /tmp/clalit-report.pdf
 npx tsx packages/cli/src/main.ts export --out DIR      # everything above into one folder, with a README for you to read first
 npx tsx packages/cli/src/main.ts refresh-session
 npx tsx packages/cli/src/main.ts logout
@@ -83,7 +87,7 @@ Only when clalit-mcp MCP tools are already configured in the host. From a checko
 }
 ```
 
-Tools: `list_labs`, `get_lab_result`, `get_lab_document`, `list_prescriptions`, `get_prescription_issue_status`, `list_lab_orders`, `get_lab_order`, plus `clalit_login`, `clalit_session_status` and `clalit_logout`.
+Tools: `list_labs`, `get_lab_result`, `get_lab_document`, `list_prescriptions`, `get_prescription_issue_status`, `list_lab_orders`, `get_lab_order`, `list_documents`, `get_document`, `list_records`, `get_record_document`, `get_hospital_lab_result`, plus `clalit_login`, `clalit_session_status` and `clalit_logout`.
 
 When a tool says nobody is signed in, call `clalit_login` and give the user the link it returns. The user signs in on that page; with MCP, never ask for the ID, CAPTCHA or SMS code in the chat. The server keeps the session alive while it runs, until the length the user picked on the page.
 

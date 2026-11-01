@@ -13,4 +13,6 @@ export * from "./readers.js";
 export * from "./session.js";
 export * from "./transport.js";
 export * from "./webforms.js";
+export * from "./documents/index.js";
+export * from "./records/index.js";
 export * from "./export/index.js";

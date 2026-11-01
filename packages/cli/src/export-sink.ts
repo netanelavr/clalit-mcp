@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ExportSink } from "@clalit/core";
 
@@ -15,6 +15,9 @@ export function folderSink(dir: string): ExportSink {
   return {
     async exists(rel) {
       return existsSync(join(dir, rel));
+    },
+    async readJson(rel) {
+      return JSON.parse(await readFile(join(dir, rel), "utf8")) as unknown;
     },
     putJson: (rel, value) => write(rel, JSON.stringify(value, null, 2) + "\n"),
     putBytes: (rel, bytes) => write(rel, bytes),

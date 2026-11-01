@@ -15,6 +15,10 @@
  */
 import { createHash } from "node:crypto";
 import { ClalitError, ReauthenticationRequired } from "../errors.js";
+import { DOCUMENT_SOURCES } from "../documents/sources.js";
+import type { ClalitDocument, DocumentListItem } from "../documents/types.js";
+import { ALL_RECORD_SOURCES } from "../records/sources.js";
+import type { RecordDocument, RecordRow } from "../records/types.js";
 import type { LabDocument, LabResultDetail } from "../labs/types.js";
 import type { LabOrderDetail } from "../lab-orders/types.js";
 import type { PrescriptionListItem } from "../prescriptions/types.js";
@@ -29,11 +33,18 @@ export interface ExportClient {
   listPrescriptions(options?: { includeExpired?: boolean }): Promise<PrescriptionListItem[]>;
   listLabOrders(): Promise<ListedLabOrder[]>;
   getLabOrder(refOrToken: string): Promise<LabOrderDetail>;
+  listDocuments(sourceId: string, options?: { fromDate?: string; toDate?: string }): Promise<DocumentListItem[]>;
+  getDocument(refOrToken: string): Promise<ClalitDocument>;
+  listRecords(sourceId: string, options?: { fromDate?: string; toDate?: string; onPage?: (rows: RecordRow[]) => Promise<void> }): Promise<RecordRow[]>;
+  getRecordDocument(refOrToken: string): Promise<RecordDocument>;
+  getHospitalLabResult(row: { link?: string; context?: { select: string; value: string }; testNumber?: string; date?: string; section?: string }): Promise<LabResultDetail>;
 }
 
 /** Where the files go. The CLI gives a folder; tests give memory. */
 export interface ExportSink {
   exists(rel: string): Promise<boolean>;
+  /** A JSON file written earlier, when the sink can read it back (so an empty answer never replaces a list that had rows). */
+  readJson?(rel: string): Promise<unknown>;
   putJson(rel: string, value: unknown): Promise<void>;
   putBytes(rel: string, bytes: Uint8Array): Promise<void>;
   putText(rel: string, text: string): Promise<void>;
@@ -43,7 +54,7 @@ export interface ExportOptions {
   /** Labs list range, `dd.MM.yyyy`; the portal's default range is short, so the export asks for a wide one. */
   fromDate?: string;
   toDate?: string;
-  /** Download each result's PDF (default true). */
+  /** Download the PDFs: each lab result's, and every document of the document sources (default true). The lists are written either way. */
   documents?: boolean;
   /** Expired prescriptions too (default true: an archive keeps history). */
   includeExpired?: boolean;
@@ -53,6 +64,11 @@ export interface ExportOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Progress lines: section names, counts; never a value. */
   log?: (line: string) => void;
+  /**
+   * Only these sections: `labs`, `prescriptions`, `lab-orders`, a document source id, a record source id.
+   * Everything else is left as it is on disk. Default: everything.
+   */
+  only?: string[];
 }
 
 export interface ExportProblem {
@@ -150,9 +166,25 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
   };
   let stopped = false;
   let withoutDocument = 0;
+  const wanted = (id: string) => !options.only || options.only.includes(id);
+  /** Writes a list, unless it came back empty where an earlier run had rows: a portal hiccup must not erase an archive. */
+  const putList = async (rel: string, rows: unknown[], value: unknown): Promise<boolean> => {
+    if (rows.length === 0 && sink.readJson && (await sink.exists(rel))) {
+      const previous = (await sink.readJson(rel).catch(() => undefined)) as { data?: unknown[] } | undefined;
+      if (Array.isArray(previous?.data) && previous.data.length > 0) {
+        count(rel);
+        problem(rel, `the portal answered with no rows where the previous run had ${previous.data.length}; the previous list is kept`);
+        return false;
+      }
+    }
+    await putJson(rel, value);
+    return true;
+  };
 
   try {
     // ---- labs ----
+    if (!wanted("labs")) log("labs: skipped (--only)");
+    else {
     log("labs");
     const labs = await client.listLabs({ fromDate, toDate });
     const archived = labs.map(withoutToken);
@@ -205,8 +237,10 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
       if ((i + 1) % 10 === 0 || i === labs.length - 1) log(`  ${i + 1}/${labs.length}`);
     }
     if (withoutDocument) log(`  ${withoutDocument} ${withoutDocument === 1 ? "result has" : "results have"} no PDF on the portal (not an error)`);
+    }
 
     // ---- prescriptions ----
+    if (wanted("prescriptions")) {
     log("prescriptions");
     try {
       await sleep(pace);
@@ -217,8 +251,10 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
       if (e instanceof ReauthenticationRequired) throw e;
       problem("prescriptions/list.json", e);
     }
+    }
 
     // ---- lab orders ----
+    if (wanted("lab-orders")) {
     log("lab-orders");
     try {
       await sleep(pace);
@@ -244,6 +280,122 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
       if (e instanceof ReauthenticationRequired) throw e;
       problem("lab-orders/list.json", e);
     }
+    }
+
+    // ---- documents: visit summaries, hospital summaries, medical approvals, Form 17 ----
+    for (const source of DOCUMENT_SOURCES) {
+      if (!wanted(source.id)) continue;
+      const folder = `documents/${source.id}`;
+      log(source.id);
+      let rows: DocumentListItem[];
+      try {
+        await sleep(pace);
+        // Each source is searched over the whole range the portal allows; --from/--to filter labs only.
+        rows = await client.listDocuments(source.id);
+        await putList(`${folder}/list.json`, rows, wrap("document-list", rows.map(withoutToken), { title: source.title }));
+        log(`  ${rows.length} ${rows.length === 1 ? "document" : "documents"}`);
+      } catch (e) {
+        if (e instanceof ReauthenticationRequired) throw e;
+        problem(`${folder}/list.json`, e);
+        continue;
+      }
+      if (!documents) continue;
+      const seenDocs = new Set<string>();
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]!;
+        let name = stem(isoDate(row.date), shortHash(row.ref.actionUrl, row.ref.actionData ?? ""), safeTitle(row.details.join("-")));
+        if (seenDocs.has(name)) name += "-" + i;
+        seenDocs.add(name);
+        const pdf = `${folder}/files/${name}.pdf`;
+        if (await sink.exists(pdf)) {
+          count(pdf);
+          continue;
+        }
+        try {
+          await sleep(pace);
+          const doc = await client.getDocument(row.refToken);
+          await sink.putBytes(pdf, doc.bytes);
+          count(pdf);
+        } catch (e) {
+          if (e instanceof ReauthenticationRequired) throw e;
+          if (e instanceof ClalitError && e.code === "NO_DOCUMENT") withoutDocument += 1;
+          else problem(pdf, e);
+        }
+        if ((i + 1) % 10 === 0 || i === rows.length - 1) log(`  ${i + 1}/${rows.length}`);
+      }
+    }
+
+    // ---- records: diagnoses, sensitivities, medications, imaging, hospital visits and labs, referrals ----
+    for (const source of ALL_RECORD_SOURCES) {
+      if (!wanted(source.id)) continue;
+      const folder = `records/${source.id}`;
+      log(source.id);
+      let rows: RecordRow[];
+      // Rows that link to a result page (hospital labs) are read as each page of the list is rendered:
+      // the portal re-issues those links on every render, so they are good only right then.
+      let detailsDone = 0;
+      const onPage =
+        source.detail === "hospital_lab"
+          ? async (pageRows: RecordRow[]) => {
+              for (const row of pageRows) {
+                const link = row.links?.find((l) => /HospitalsLabTestDetails\.aspx/i.test(l));
+                if (!link) continue;
+                const testNumber = row.fields["מספר הבדיקה"] ?? "";
+                const name = stem(isoDate(row.date), shortHash(row.context?.value ?? "", row.date ?? "", testNumber, row.fields["תחום המעבדה"] ?? ""), safeTitle(Object.values(row.fields).slice(0, 3).join("-")));
+                const rel = `${folder}/details/${name}.json`;
+                if (await sink.exists(rel)) {
+                  count(rel);
+                  continue;
+                }
+                try {
+                  await sleep(pace);
+                  const detail = await client.getHospitalLabResult({ link });
+                  await putJson(rel, wrap("hospital-lab-result", detail, { list: withoutToken(row) }));
+                  detailsDone++;
+                } catch (e) {
+                  if (e instanceof ReauthenticationRequired) throw e;
+                  problem(rel, e);
+                }
+              }
+              if (detailsDone) log(`  ${detailsDone} results read so far`);
+            }
+          : undefined;
+      try {
+        await sleep(pace);
+        rows = await client.listRecords(source.id, onPage ? { onPage } : {});
+        if (!(await putList(`${folder}/list.json`, rows, wrap("record-list", rows.map(withoutToken), { title: source.title, ...(source.notes ? { notes: source.notes } : {}) })))) continue;
+        log(`  ${rows.length} ${rows.length === 1 ? "row" : "rows"}`);
+      } catch (e) {
+        if (e instanceof ReauthenticationRequired) throw e;
+        problem(`${folder}/list.json`, e);
+        continue;
+      }
+      if (!documents) continue;
+      const seenPdfs = new Set<string>();
+      const withPdf = rows.filter((r) => r.refToken && r.ref);
+      for (let i = 0; i < withPdf.length; i++) {
+        const row = withPdf[i]!;
+        let name = stem(isoDate(row.date), shortHash(row.ref!.actionUrl, row.ref!.actionData ?? ""), safeTitle(Object.values(row.fields).slice(0, 3).join("-")));
+        if (seenPdfs.has(name)) name += "-" + i;
+        seenPdfs.add(name);
+        const pdf = `${folder}/files/${name}.pdf`;
+        if (await sink.exists(pdf)) {
+          count(pdf);
+          continue;
+        }
+        try {
+          await sleep(pace);
+          const doc = await client.getRecordDocument(row.refToken!);
+          await sink.putBytes(pdf, doc.bytes);
+          count(pdf);
+        } catch (e) {
+          if (e instanceof ReauthenticationRequired) throw e;
+          if (e instanceof ClalitError && e.code === "NO_DOCUMENT") withoutDocument += 1;
+          else problem(pdf, e);
+        }
+        if ((i + 1) % 10 === 0 || i === withPdf.length - 1) log(`  ${i + 1}/${withPdf.length} PDFs`);
+      }
+    }
   } catch (e) {
     if (!(e instanceof ReauthenticationRequired)) throw e;
     stopped = true;
@@ -260,7 +412,7 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
 function readme(r: { startedAt: string; folders: Record<string, number>; problems: ExportProblem[]; stopped: boolean; fromDate: string; toDate: string; documents: boolean; withoutDocument: number }): string {
   const has = (f: string) => (r.folders[f] ?? 0) > 0;
   const failedIn = new Set(r.problems.map((p) => p.where.split("/")[0]));
-  const missing = ["labs", "prescriptions", "lab-orders"].filter((f) => !has(f));
+  const missing = ["labs", "prescriptions", "lab-orders", "documents", "records"].filter((f) => !has(f));
   const files = (n: number | undefined) => `${n ?? 0} ${n === 1 ? "file" : "files"}`;
   const absent = missing.map((f) => `\`${f}/\`` + (failedIn.has(f) ? " (collecting it failed — see export-errors.json)" : " (nothing on record, or not reached)")).join(", ");
   return `# Clalit health records export
@@ -296,11 +448,33 @@ ${has("prescriptions") ? `
 ${has("lab-orders") ? `
 **\`lab-orders/\`** · ${files(r.folders["lab-orders"])} — \`list.json\`: referrals for laboratory tests (\`issuanceDate\`,
 \`referer\`, \`validTo\`); \`details/\`: the tests each order lists (\`data.items[]\`).` : ""}
+${has("documents") ? `
+**\`documents/\`** · ${files(r.folders.documents)} — one folder per portal source, each with \`list.json\` (\`data[]\`: \`date\`,
+\`details[]\` — the row's cells as shown: doctor, specialty, hospital, type…) and${r.documents ? " \`files/<date>_<id>_<details>.pdf\`, the portal's own PDF of each" : " no PDFs (--no-documents)"}:
+\`visit_summaries/\` סיכומי ביקור רפואה יועצת (specialist visit summaries), \`hospital_summaries/\` סיכומים מבתי חולים
+(hospital discharge and summary letters; the first detail is the hospital), \`medical_approvals/\` אישורים רפואיים
+(medical certificates and approvals), \`form17/\` התחייבויות — Form 17 commitments, which the portal keeps for one year only.
+The PDFs are the clinical text; \`list.json\` only says which exist.` : ""}
+${has("records") ? `
+**\`records/\`** · ${files(r.folders.records)} — one folder per portal page, each with \`list.json\` (\`data[]\`: \`date\`, \`fields\` — the
+row's cells keyed by the portal's own Hebrew column headers, \`cells\` in column order, \`items\` for a referral's services,
+\`links\` when a row points at a detail page) and, where the portal offers one, \`files/<date>_<id>_<fields>.pdf\`:
+\`diagnoses/\` האבחנות שלי, \`sensitivities/\` הרגישויות שלי (allergies and reactions), \`chronic_medications/\` תרופות קבועות
+(the regular medication list), \`medicines_purchased/\` תרופות שנקנו (pharmacy purchases since 08.2008 — what was actually
+dispensed), \`medication_approvals/\` אישורי תרופות, \`imaging_clinics/\` · \`imaging_hospitals/\` · \`imaging_external/\` פענוחי
+דימות (imaging reports; the PDF is the radiologist's text), \`hospital_visits/\` ביקורים בבתי החולים של כללית, \`hospital_labs/\`
+בדיקות מעבדה מבתי חולים (hospital lab tests, separate from \`labs/\`; \`details/\` holds each draw's analytes in the same shape as
+\`labs/details/\`), \`referrals/\` הפניות (the last year only; the PDF is the referral), \`appointments/\` תורים עתידיים (the next
+appointments: date, time, doctor or service), \`recommendations/\` המלצות רפואיות (the portal's own preventive-care recommendations
+for this member, with their text), \`vaccinations/\` החיסונים שעשיתי and \`blood_type/\` סוג הדם (from the endpoints the portal's
+own pages read; keys are the portal's field names).
+Each \`list.json\` carries the portal's own \`notes\` on what that page leaves out.` : ""}
 ${missing.length ? `\nThis export has no ${absent}.\n` : ""}
 ## What is not here
 
-Visit summaries, imaging, vaccinations, letters, general referrals and the medical file: this client does not read them
-(Clalit Online shows them, but no reader exists yet). An absence here is not an absence in your history.
+Family-doctor visit notes (the portal exposes only specialist summaries), the images behind imaging reports (only the
+radiologist's report), records from non-Clalit hospitals, and anything the portal marks sensitive or confidential: not here.
+An absence here is not an absence in your history.
 
 ## What this export failed to collect
 

@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Cookie, CookieJar, type SerializedCookieJar } from "tough-cookie";
 import {
   ALLOWED_ORIGINS,
@@ -296,6 +298,7 @@ export class ClalitTransport {
         });
         this.#lastRequestAt = this.#now();
         await this.#storeSetCookies(absolute, response);
+        await debugTee(absolute, init.method ?? "GET", response);
 
         if (response.status === 401 || response.status === 403) {
           const peek = await response.clone().text().catch(() => "");
@@ -414,4 +417,27 @@ export function responseSetCookieNames(response: Response): string[] {
   return setCookies
     .map(setCookieHeaderName)
     .filter((n): n is string => Boolean(n));
+}
+
+/**
+ * CLALIT_DEBUG_DIR: when set, every response body is also written there as
+ * `<n>_<METHOD>_<path>.<ext>` (mode 0600) so a reader can be checked against
+ * what the portal actually answered. Bodies hold the member's record; the
+ * directory must stay private. Headers and cookies are never written.
+ */
+let debugSeq = 0;
+async function debugTee(url: string, method: string, response: Response): Promise<void> {
+  const dir = process.env.CLALIT_DEBUG_DIR;
+  if (!dir) return;
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const u = new URL(url);
+    const ct = response.headers.get("content-type") ?? "";
+    const ext = /pdf|octet/i.test(ct) ? "bin" : /json/i.test(ct) ? "json" : "html";
+    const name = `${String(++debugSeq).padStart(3, "0")}_${method.toUpperCase()}_${response.status}_${u.pathname.replace(/^\/OnlineWeb\//i, "").replace(/[^\w.-]+/g, "_")}.${ext}`;
+    const body = ext === "bin" ? Buffer.from(await response.clone().arrayBuffer()) : await response.clone().text();
+    writeFileSync(join(dir, name), body, { mode: 0o600 });
+  } catch {
+    /* debugging never fails a request */
+  }
 }

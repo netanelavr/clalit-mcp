@@ -11,9 +11,14 @@
 5. `get_prescription_issue_status`: medicine row keys + `sectionId` (read status only)
 6. `list_lab_orders`: lab orders (הפניות לבדיקות מעבדה); not MedicalReferrals
 7. `get_lab_order`: required `ref` from `list_lab_orders`; no PDF
-8. `clalit_login`: the sign-in link, or the status when already signed in
-9. `clalit_session_status`: `state` (`signed_in`, `signed_out`, `expired`), `signedInAt`, `endsAt`, `lastCheckedAt`, `lastError`, and `signInUrl` when not signed in
-10. `clalit_logout`: forgets the saved session
+8. `list_documents`: required `source` (`visit_summaries`, `hospital_summaries`, `medical_approvals`, `form17`), optional `fromDate` / `toDate`
+9. `get_document`: required `ref` from `list_documents`; returns a base64 PDF
+10. `list_records`: required `source` (`diagnoses`, `sensitivities`, `chronic_medications`, `medicines_purchased`, `medication_approvals`, `imaging_clinics`, `imaging_hospitals`, `imaging_external`, `hospital_visits`, `hospital_labs`, `referrals`, `appointments`, `recommendations`, `vaccinations`, `blood_type`), optional `fromDate` / `toDate`; rows keyed by the portal's Hebrew headers (the API-backed sources by the portal's field names)
+11. `get_record_document`: required `ref` from `list_records` (imaging reports, referrals); returns a base64 PDF
+12. `get_hospital_lab_result`: required `link` and the row's `hospital` (its `context.value`) from a `hospital_labs` row; the draw's analytes
+13. `clalit_login`: the sign-in link, or the status when already signed in
+14. `clalit_session_status`: `state` (`signed_in`, `signed_out`, `expired`), `signedInAt`, `endsAt`, `lastCheckedAt`, `lastError`, and `signInUrl` when not signed in
+15. `clalit_logout`: forgets the saved session
 
 ## Sign-in page
 

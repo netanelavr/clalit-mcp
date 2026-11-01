@@ -10,6 +10,11 @@ npx tsx packages/cli/src/main.ts prescriptions --json
 npx tsx packages/cli/src/main.ts prescription-status --prescription NO --medication ID --form NAME --start DATE --section ID --json
 npx tsx packages/cli/src/main.ts lab-orders --json
 npx tsx packages/cli/src/main.ts lab-order --ref TOKEN --json
+npx tsx packages/cli/src/main.ts documents --source (visit_summaries|hospital_summaries|medical_approvals|form17) [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--json]
+npx tsx packages/cli/src/main.ts document --ref TOKEN --out FILE
+npx tsx packages/cli/src/main.ts records --source (diagnoses|sensitivities|chronic_medications|medicines_purchased|medication_approvals|imaging_clinics|imaging_hospitals|imaging_external|hospital_visits|hospital_labs|referrals|appointments|recommendations|vaccinations|blood_type) [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--json]
+npx tsx packages/cli/src/main.ts hospital-lab-result --link PATH [--hospital VALUE] [--json]
+npx tsx packages/cli/src/main.ts record-document --ref TOKEN --out FILE
 npx tsx packages/cli/src/main.ts export [--out DIR] [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--no-documents] [--current-only]
 npx tsx packages/cli/src/main.ts refresh-session
 npx tsx packages/cli/src/main.ts logout
@@ -20,9 +25,9 @@ npx tsx packages/cli/src/main.ts mcp
 
 Exit codes: `0` success, `1` operation failure, `2` usage, `3` login / Imperva block.
 
-`export` writes `clalit-export-<today>/` (Israel's calendar) with `labs/`, `prescriptions/`, `lab-orders/` and the
+`export` writes `clalit-export-<today>/` (Israel's calendar) with `labs/`, `prescriptions/`, `lab-orders/`, `documents/<source>/` and `records/<source>/` (a `list.json` and, where the portal offers PDFs, `files/*.pdf` per source; `hospital_labs/details/` holds each draw's results) and the
 root files `README.md` (the export's data dictionary, for an assistant), `export-errors.json`, `CLAUDE.md`, `AGENTS.md`.
 Requests are paced 300 ms apart; a failed item is filed and the export continues (a result the portal has no PDF for is
 skipped, not filed: its detail says `hasDocument: false`); an ended session stops it with
 exit `3` and keeps what was collected (rerun into the same folder to continue). `--from`/`--to` filter labs only
-(default `01.01.1990` to today); prescriptions and lab orders are always exported in full. Reads only, own record only.
+(default `01.01.1990` to today); prescriptions, lab orders, documents and records are always exported in full; `--no-documents` skips every PDF. Reads only, own record only.

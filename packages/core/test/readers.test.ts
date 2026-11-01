@@ -385,3 +385,58 @@ describe("ClalitReaders listPrescriptions pagination", () => {
     expect(bodies).toHaveLength(1);
   });
 });
+describe("ClalitReaders listDocuments", () => {
+  // A portal that, like the real one, shows only the first 10 matching rows.
+  function portal(dates: string[]) {
+    const searches: Array<[string, string]> = [];
+    const toMs = (d: string) => {
+      const [dd, mm, yy] = d.split(".").map(Number);
+      return Date.UTC(yy!, mm! - 1, dd!);
+    };
+    const transport = {
+      assertNotIdleExpired(): void {},
+      async request(_input: string | URL, init?: RequestInit): Promise<Response> {
+        const html = (rows: string[]) =>
+          new Response(
+            `<html><form><input type="hidden" name="__VIEWSTATE" value="vs" /><table>${rows
+              .map(
+                (d, i) =>
+                  `<tr class="ClalitGridRow"><td>${d}</td><td>דוקטור</td><td class="ClalitGridActions"><a data-actionurl="/OnlineWeb/api/SummaryLetterPdf/DoesPdfExists/1/1?docId=${d.replace(/\./g, "")}${i}">v</a></td></tr>`,
+              )
+              .join("")}</table></form></html>`,
+            { status: 200, headers: { "content-type": "text/html" } },
+          );
+        if ((init?.method ?? "GET").toUpperCase() === "GET") return html([]);
+        const params = new URLSearchParams(String(init?.body ?? ""));
+        const from = params.get("ctl00$ctl00$cphBody$bodyContent$DatepickerRangeCalendar1$txtFromDate")!;
+        const to = params.get("ctl00$ctl00$cphBody$bodyContent$DatepickerRangeCalendar1$txtToDate")!;
+        searches.push([from, to]);
+        const hits = dates
+          .filter((d) => toMs(d) >= toMs(from) && toMs(d) <= toMs(to))
+          .sort((a, b) => toMs(b) - toMs(a));
+        return html(hits.slice(0, 10));
+      },
+    } as unknown as ClalitTransport;
+    return { transport, searches };
+  }
+
+  test("a full first page is split until every row is found", async () => {
+    // Synthetic: the 1st of every fourth month, Jan 2020 to Jan 2026.
+    const dates = Array.from({ length: 19 }, (_, i) => {
+      const month = i * 4;
+      return `01.${String((month % 12) + 1).padStart(2, "0")}.${2020 + Math.floor(month / 12)}`;
+    });
+    const { transport, searches } = portal(dates);
+    const rows = await new ClalitReaders(transport).listDocuments("visit_summaries", { toDate: "31.12.2026" });
+    expect(rows.map((r) => r.date).sort()).toEqual([...dates].sort());
+    expect(rows[0]!.date).toBe("01.01.2026");
+    expect(searches[0]).toEqual(["01.01.2012", "31.12.2026"]);
+  });
+
+  test("fewer rows than a page: one search", async () => {
+    const { transport, searches } = portal(["01.02.2025", "03.04.2025"]);
+    const rows = await new ClalitReaders(transport).listDocuments("visit_summaries", { toDate: "31.12.2026" });
+    expect(rows).toHaveLength(2);
+    expect(searches).toHaveLength(1);
+  });
+});

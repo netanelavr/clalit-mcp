@@ -1,4 +1,4 @@
-import { connect, type ClalitClient } from "@clalit/core";
+import { connect, ALL_RECORD_SOURCES, DOCUMENT_SOURCE_IDS, DOCUMENT_SOURCES, RECORD_SOURCE_IDS, type ClalitClient } from "@clalit/core";
 import { loadSession } from "@clalit/cli/store";
 import { z } from "zod";
 
@@ -10,6 +10,11 @@ export const TOOL_NAMES = [
   "get_prescription_issue_status",
   "list_lab_orders",
   "get_lab_order",
+  "list_documents",
+  "get_document",
+  "list_records",
+  "get_record_document",
+  "get_hospital_lab_result",
 ] as const;
 
 /**
@@ -221,4 +226,113 @@ export async function getLabOrderTool(args: z.infer<typeof labOrderRefSchema>) {
     },
     guidance: "Lab-order detail HTML only. Print/PDF/email download is not fetched.",
   };
+}
+
+export const listDocumentsSchema = z.object({
+  source: z
+    .enum(DOCUMENT_SOURCE_IDS as [string, ...string[]])
+    .describe(DOCUMENT_SOURCES.map((s) => `${s.id}: ${s.description}`).join(" ")),
+  fromDate: z.string().optional().describe("Optional from-date (dd.MM.yyyy). Defaults to the earliest the portal allows."),
+  toDate: z.string().optional().describe("Optional to-date (dd.MM.yyyy). Defaults to today."),
+});
+
+export const documentRefSchema = z.object({
+  ref: z.string().describe("Opaque refToken from list_documents. Never invent action URLs."),
+});
+
+export async function listDocumentsTool(args: z.infer<typeof listDocumentsSchema>) {
+  const client = await getClient();
+  const data = await client.listDocuments(args.source, {
+    fromDate: args.fromDate,
+    toDate: args.toDate,
+  });
+  return {
+    data: data.map((row) => ({
+      source: row.source,
+      date: row.date,
+      details: row.details,
+      ref: row.refToken,
+      next: [{ tool: "get_document", arguments: { ref: row.refToken } }],
+    })),
+    guidance:
+      "Private owner documents only. Preserve Hebrew labels and dates. Do not invent refs. Family switching unsupported.",
+  };
+}
+
+export async function getDocumentTool(args: z.infer<typeof documentRefSchema>) {
+  const client = await getClient();
+  const doc = await client.getDocument(args.ref);
+  return {
+    data: {
+      source: doc.ref.source,
+      filename: doc.filename,
+      contentType: doc.contentType,
+      byteLength: doc.bytes.byteLength,
+      pdfBase64: Buffer.from(doc.bytes).toString("base64"),
+    },
+    guidance: "Original PDF bytes (base64). Not extracted text. Handle as medical PHI.",
+  };
+}
+
+export const listRecordsSchema = z.object({
+  source: z
+    .enum(RECORD_SOURCE_IDS as [string, ...string[]])
+    .describe(ALL_RECORD_SOURCES.map((s) => `${s.id}: ${s.description}`).join(" ")),
+  fromDate: z.string().optional().describe("Optional from-date (dd.MM.yyyy). Defaults to the earliest the portal allows."),
+  toDate: z.string().optional().describe("Optional to-date (dd.MM.yyyy). Defaults to today."),
+});
+
+export const recordRefSchema = z.object({
+  ref: z.string().describe("Opaque refToken from list_records. Never invent action URLs."),
+});
+
+export async function listRecordsTool(args: z.infer<typeof listRecordsSchema>) {
+  const client = await getClient();
+  const data = await client.listRecords(args.source, { fromDate: args.fromDate, toDate: args.toDate });
+  return {
+    data: data.map((row) => ({
+      source: row.source,
+      date: row.date,
+      fields: row.fields,
+      ...(row.items ? { items: row.items } : {}),
+      ...(row.links ? { links: row.links } : {}),
+      ...(row.context ? { context: row.context } : {}),
+      ...(row.refToken ? { ref: row.refToken, next: [{ tool: "get_record_document", arguments: { ref: row.refToken } }] } : {}),
+    })),
+    guidance:
+      "Rows as the portal shows them; keys are the portal's Hebrew column headers. Private owner records only. Do not invent refs. Family switching unsupported.",
+  };
+}
+
+export async function getRecordDocumentTool(args: z.infer<typeof recordRefSchema>) {
+  const client = await getClient();
+  const doc = await client.getRecordDocument(args.ref);
+  return {
+    data: {
+      source: doc.ref.source,
+      filename: doc.filename,
+      contentType: doc.contentType,
+      byteLength: doc.bytes.byteLength,
+      pdfBase64: Buffer.from(doc.bytes).toString("base64"),
+    },
+    guidance: "Original PDF bytes (base64). Not extracted text. Handle as medical PHI.",
+  };
+}
+
+export const hospitalLabLinkSchema = z.object({
+  link: z.string().optional().describe("A hospital_labs row's link from list_records (HospitalsLabTestDetails.aspx?s&d&h). Never invent one."),
+  hospital: z.string().optional().describe("The row's context.value from list_records (the hospital option). With testNumber, the search is replayed and the row's fresh link followed — links expire with each render of the list."),
+  testNumber: z.string().optional().describe("The row's מספר הבדיקה field from list_records."),
+  date: z.string().optional().describe("The row's date (dd.MM.yyyy), when there is no test number."),
+});
+
+export async function getHospitalLabResultTool(args: z.infer<typeof hospitalLabLinkSchema>) {
+  const client = await getClient();
+  const data = await client.getHospitalLabResult({
+    link: args.link,
+    ...(args.hospital ? { context: { select: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$ddlHospitalName", value: args.hospital } } : {}),
+    testNumber: args.testNumber,
+    date: args.date,
+  });
+  return { data, guidance: "Hospital lab result as parsed from the portal page. Preserve Hebrew names, units and ranges." };
 }

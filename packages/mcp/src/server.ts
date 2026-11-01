@@ -4,9 +4,19 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { PACKAGE_VERSION } from "@clalit/core";
+import { ALL_RECORD_SOURCES, DOCUMENT_SOURCES, DOCUMENT_SOURCE_IDS, PACKAGE_VERSION, RECORD_SOURCE_IDS } from "@clalit/core";
 import {
+  documentRefSchema,
+  getDocumentTool,
+  getRecordDocumentTool,
+  getHospitalLabResultTool,
+  hospitalLabLinkSchema,
+  listRecordsSchema,
+  listRecordsTool,
+  recordRefSchema,
   getLabDocumentTool,
+  listDocumentsSchema,
+  listDocumentsTool,
   getLabOrderTool,
   getLabResultTool,
   getPrescriptionIssueStatusTool,
@@ -24,12 +34,11 @@ import {
 const INSTRUCTIONS = [
   "Unofficial Clalit own-account reader (read-only).",
   "Unaffiliated with Clalit Health Services.",
-  "Tools: list_labs → get_lab_result / get_lab_document; list_prescriptions → get_prescription_issue_status; list_lab_orders → get_lab_order.",
+  "Tools: list_labs → get_lab_result / get_lab_document; list_prescriptions → get_prescription_issue_status; list_lab_orders → get_lab_order; list_documents → get_document (visit summaries, hospital summaries, …); list_records → get_record_document / get_hospital_lab_result (diagnoses, sensitivities, medications, imaging, hospital visits and labs, referrals, appointments, recommendations, vaccinations, blood type).",
   "Never invent portal query params. Never switch family members.",
   "Sign-in is interactive CAPTCHA+SMS on the user's machine; Imperva blocks datacenter IPs.",
   "Preserve Hebrew source text, units, ranges, and dates. Lab PDFs are original bytes; prescription/lab-order PDFs are out of scope.",
-  "Lab PDFs are original bytes; prescription/lab-order PDFs are out of scope.",
-  "MedicalReferrals.aspx is not implemented.",
+  "Lab PDFs, document PDFs, imaging reports and referrals are original bytes; prescription/lab-order PDFs are out of scope.",
 ].join(" ");
 
 /** Tools a host adds next to the Clalit readers (e.g. the sign-in and session tools). */
@@ -130,7 +139,7 @@ export function createMcpServer(extra?: ExtraTools): Server {
       {
         name: "list_lab_orders",
         description:
-          "List the authenticated owner's lab orders / הפניות לבדיקות מעבדה (LabOrderList.aspx). Not MedicalReferrals.",
+          "List the authenticated owner's lab orders / הפניות לבדיקות מעבדה (LabOrderList.aspx). General referrals are list_records with source referrals.",
         inputSchema: {
           type: "object",
           properties: {},
@@ -144,6 +153,77 @@ export function createMcpServer(extra?: ExtraTools): Server {
           type: "object",
           properties: {
             ref: { type: "string", description: "Opaque refToken from list_lab_orders." },
+          },
+          required: ["ref"],
+        },
+      },
+      {
+        name: "list_documents",
+        description:
+          "List the authenticated owner's PDF documents from one portal source, searching its full date range by default.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            source: {
+              type: "string",
+              enum: DOCUMENT_SOURCE_IDS,
+              description: DOCUMENT_SOURCES.map((s) => `${s.id}: ${s.description}`).join(" "),
+            },
+            fromDate: { type: "string", description: "Optional from-date (dd.MM.yyyy)." },
+            toDate: { type: "string", description: "Optional to-date (dd.MM.yyyy)." },
+          },
+          required: ["source"],
+        },
+      },
+      {
+        name: "get_document",
+        description: "Download the original PDF for a list_documents ref.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            ref: { type: "string", description: "Opaque refToken from list_documents." },
+          },
+          required: ["ref"],
+        },
+      },
+      {
+        name: "list_records",
+        description:
+          "List one record source for the authenticated owner: diagnoses, sensitivities, chronic medications, purchased medicines, medication approvals, imaging reports (clinics, hospitals, external institutes), hospital visits, hospital labs, referrals. Rows keep the portal's Hebrew column headers as keys.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            source: {
+              type: "string",
+              enum: RECORD_SOURCE_IDS,
+              description: ALL_RECORD_SOURCES.map((s) => `${s.id}: ${s.description}`).join(" "),
+            },
+            fromDate: { type: "string", description: "Optional from-date (dd.MM.yyyy)." },
+            toDate: { type: "string", description: "Optional to-date (dd.MM.yyyy)." },
+          },
+          required: ["source"],
+        },
+      },
+      {
+        name: "get_hospital_lab_result",
+        description: "Read one hospital lab result page using a hospital_labs row's link from list_records (analytes, values, units, ranges, flags).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            link: { type: "string", description: "The row's link (HospitalsLabTestDetails.aspx?s&d&h); it expires with the list's render." },
+            hospital: { type: "string", description: "The row's context.value (hospital option): with testNumber, the search is replayed and the row's fresh link followed." },
+            testNumber: { type: "string", description: "The row's מספר הבדיקה." },
+            date: { type: "string", description: "The row's date (dd.MM.yyyy), when there is no test number." },
+          },
+        },
+      },
+      {
+        name: "get_record_document",
+        description: "Download the original PDF for a list_records ref (an imaging report, a referral).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            ref: { type: "string", description: "Opaque refToken from list_records." },
           },
           required: ["ref"],
         },
@@ -170,6 +250,12 @@ export function createMcpServer(extra?: ExtraTools): Server {
       else if (name === "list_lab_orders") result = await listLabOrdersTool();
       else if (name === "get_lab_order")
         result = await getLabOrderTool(labOrderRefSchema.parse(args));
+      else if (name === "list_documents")
+        result = await listDocumentsTool(listDocumentsSchema.parse(args));
+      else if (name === "get_document") result = await getDocumentTool(documentRefSchema.parse(args));
+      else if (name === "list_records") result = await listRecordsTool(listRecordsSchema.parse(args));
+      else if (name === "get_record_document") result = await getRecordDocumentTool(recordRefSchema.parse(args));
+      else if (name === "get_hospital_lab_result") result = await getHospitalLabResultTool(hospitalLabLinkSchema.parse(args));
       else throw new Error(`Unknown tool: ${name}`);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],

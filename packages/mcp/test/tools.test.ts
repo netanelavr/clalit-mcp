@@ -12,10 +12,15 @@ describe("MCP tool surface", () => {
   test("tools include labs + prescriptions + lab-orders", () => {
     expect([...TOOL_NAMES].sort()).toEqual(
       [
+        "get_document",
+        "get_record_document",
+        "get_hospital_lab_result",
+        "list_records",
         "get_lab_document",
         "get_lab_order",
         "get_lab_result",
         "get_prescription_issue_status",
+        "list_documents",
         "list_lab_orders",
         "list_labs",
         "list_prescriptions",
