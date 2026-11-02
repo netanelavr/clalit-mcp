@@ -25,7 +25,7 @@ describe("http-login helpers", () => {
   test("escapeHtml and pages render expected fields", () => {
     expect(escapeHtml("<x>")).toBe("&lt;x&gt;");
     expect(idPage("csrf-token")).toContain('name="id"');
-    expect(captchaPage("csrf-token", { hasImage: true })).toContain("/captcha.png");
+    expect(captchaPage("csrf-token", { hasImage: true })).toContain('src="captcha.png"');
     expect(captchaPage("csrf-token", { hasImage: false })).toContain("CAPTCHA");
     expect(otpPage("csrf-token", "Enter SMS")).toContain('name="otp"');
     expect(waitingPage("Checking CAPTCHA…", "Waiting")).toContain("Checking CAPTCHA");

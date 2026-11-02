@@ -61,7 +61,11 @@ export function parseLabsListHtml(html: string): LabListItem[] {
     }
     // Empty history is valid only when real list chrome is present.
     if (looksLikeLabsListChrome(html)) return [];
-    throw new ParseError("LABS_LIST_SHAPE", "Labs list grid not found.");
+    // Say which page came back instead: the title and the portal's own page heading, never a value.
+    const title = $("title").first().text().replace(/\s+/g, " ").trim();
+    const heading = $("[id$='lblPageTitle_adm'], h1").first().text().replace(/\s+/g, " ").trim();
+    const where = [title, heading].filter(Boolean).join(" / ");
+    throw new ParseError("LABS_LIST_SHAPE", `Labs list grid not found${where ? ` (the portal answered with: ${where})` : ""}.`);
   }
 
   grid.find("tr").each((_, tr) => {

@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { ReauthenticationRequired, UpstreamError } from "../src/errors.js";
 import { exportAll, exportName, isoDate, safeTitle, shortHash, type ExportClient, type ExportSink } from "../src/export/index.js";
+import { decodeDocumentRef, encodeDocumentRef } from "../src/documents/index.js";
+import { decodeRecordRef, encodeRecordRef } from "../src/records/index.js";
 import { encodeLabRef, parseLabDetailHtml, parseLabsListHtml } from "../src/labs/index.js";
 import { parseLabOrderDetailHtml, parseLabOrdersListHtml, encodeLabOrderRef } from "../src/lab-orders/index.js";
 import { parsePrescriptionsListHtml } from "../src/prescriptions/index.js";
@@ -15,6 +17,9 @@ class MemorySink implements ExportSink {
   files = new Map<string, string | Uint8Array>();
   async exists(rel: string) {
     return this.files.has(rel);
+  }
+  async readJson(rel: string) {
+    return JSON.parse(this.files.get(rel) as string) as unknown;
   }
   async putJson(rel: string, value: unknown) {
     this.files.set(rel, JSON.stringify(value, null, 2));
@@ -71,6 +76,38 @@ function fakeClient(opts: { failDocument?: boolean; noDocument?: boolean; endSes
       const item = orders.find((o) => o.refToken === token)!;
       return parseLabOrderDetailHtml(read("lab-order-detail.html"), item.ref);
     },
+    async listDocuments(sourceId) {
+      calls.push("listDocuments " + sourceId);
+      if (sourceId !== "visit_summaries") return [];
+      const ref = { source: sourceId, actionUrl: "/OnlineWeb/api/SummaryLetterPdf/DoesPdfExists/1/1?docId=1" };
+      return [{ source: sourceId, date: "03.05.2024", details: ["ד\"ר פלונית", "קרדיולוגיה"], ref, refToken: encodeDocumentRef(ref) }];
+    },
+    async getDocument(token) {
+      calls.push("getDocument");
+      if (opts.failDocument) throw new Error("The Clalit request could not be completed (network error).");
+      return { ref: decodeDocumentRef(token), contentType: "application/pdf", filename: "visit.pdf", bytes: new Uint8Array(Buffer.from("%PDF-1.4 visit")) };
+    },
+    async listRecords(sourceId, options) {
+      calls.push("listRecords " + sourceId);
+      if (sourceId === "hospital_labs") {
+        const rows = [{ source: sourceId, date: "02.09.2026", fields: { "בית חולים": "בית חולים לדוגמה", תאריך: "02.09.2026", "תחום המעבדה": "המטולוגיה", "מספר הבדיקה": "100" }, cells: ["בית חולים לדוגמה", "02.09.2026", "המטולוגיה", "100"], links: ["/OnlineWeb/Services/HospitalsLabs/HospitalsLabTestDetails.aspx?s=a&d=b&h=c"], context: { select: "x", value: "1" } }];
+        if (options?.onPage) await options.onPage(rows);
+        return rows;
+      }
+      if (sourceId !== "imaging_clinics") return [];
+      const ref = { source: sourceId, actionUrl: "/OnlineWeb/api/Rentgen/GetPDFDocument/1/1000" };
+      return [{ source: sourceId, date: "17.05.2026", fields: { "סוג הבדיקה": "צילום", "הגורם המפנה": "רופא" }, cells: ["17.05.2026", "צילום", "רופא"], ref, refToken: encodeRecordRef(ref) }];
+    },
+    async getRecordDocument(token) {
+      calls.push("getRecordDocument");
+      if (opts.failDocument) throw new Error("The Clalit request could not be completed (network error).");
+      return { ref: decodeRecordRef(token), contentType: "application/pdf", filename: "imaging.pdf", bytes: new Uint8Array(Buffer.from("%PDF-1.4 imaging")) };
+    },
+    async getHospitalLabResult(row) {
+      calls.push("getHospitalLabResult " + (row.testNumber ?? ""));
+      const detail = parseLabDetailHtml(read("lab-detail.html"), { s: "s", d: "d", ls: "h" });
+      return { ...detail, ref: { s: "s", d: "d", ls: new URL(row.link ?? "", "https://e-services.clalit.co.il").searchParams.get("h") ?? "" } };
+    },
   };
   return { client, calls, labs, orders };
 }
@@ -103,6 +140,20 @@ describe("exportAll", () => {
       expect(sink.json(n).list).not.toHaveProperty("refToken");
     }
     for (const root of ["README.md", "export-errors.json", "CLAUDE.md", "AGENTS.md"]) expect(names).toContain(root);
+    // Documents: a list per source, the PDFs under files/, named by date, a stable id and the row's details.
+    for (const source of ["visit_summaries", "hospital_summaries", "medical_approvals", "form17"]) expect(names).toContain(`documents/${source}/list.json`);
+    const visitPdfs = names.filter((n) => n.startsWith("documents/visit_summaries/files/"));
+    expect(visitPdfs).toHaveLength(1);
+    expect(visitPdfs[0]).toMatch(/^documents\/visit_summaries\/files\/2024-05-03_[0-9a-f]{8}_\S+\.pdf$/);
+    for (const row of sink.json("documents/visit_summaries/list.json").data) expect(row).not.toHaveProperty("refToken");
+    expect(report.folders.documents).toBe(5);
+    expect(names.filter((n) => n.startsWith("records/") && n.endsWith("list.json"))).toHaveLength(15);
+    expect(names.filter((n) => n.startsWith("records/imaging_clinics/files/"))).toHaveLength(1);
+    const hospitalDetails = names.filter((n) => n.startsWith("records/hospital_labs/details/"));
+    expect(hospitalDetails).toHaveLength(1);
+    expect(sink.json(hospitalDetails[0]!).data.analytes[0]).toMatchObject({ name: "PT-INR" });
+    expect(calls).toContain("getHospitalLabResult ");
+    expect(report.folders.records).toBe(17);
 
     // File names: the list date as yyyy-mm-dd, a stable short id from the opaque ref, the test's name.
     const detail = names.filter((n) => n.startsWith("labs/details/")).at(-1)!; // sorted: the newest date last, the list's first row
@@ -124,6 +175,8 @@ describe("exportAll", () => {
     const readme = sink.files.get("README.md") as string;
     expect(readme).toContain("export layout 1");
     expect(readme).toContain("`labs/`");
+    expect(readme).toContain("`documents/`");
+    expect(readme).toContain("`records/`");
     expect(readme).toContain("01.01.1990 to 14.10.2026");
     expect(readme).toContain("Nothing: every request was answered.");
     expect(report.folders).toMatchObject({ labs: 1 + 2 * labs.filter((l) => l.hasDetail).length, prescriptions: 1 });
@@ -133,7 +186,7 @@ describe("exportAll", () => {
     const before = calls.length;
     const again = await exportAll(client, sink, clock);
     expect(again.problems).toEqual([]);
-    expect(calls.slice(before).filter((c) => c.startsWith("getLabResult") || c.startsWith("getLabDocument"))).toEqual([]);
+    expect(calls.slice(before).filter((c) => c.startsWith("getLabResult") || c.startsWith("getLabDocument") || c === "getDocument" || c === "getRecordDocument" || c.startsWith("getHospitalLabResult"))).toEqual([]);
   });
 
   test("a result the portal offers no PDF for is skipped without a request, on a rerun too, and is not a problem", async () => {
@@ -163,7 +216,10 @@ describe("exportAll", () => {
     const sink = new MemorySink();
     const report = await exportAll(client, sink, clock);
     expect(report.withoutDocument).toBe(0);
-    expect(report.problems).toHaveLength(labs.filter((l) => l.hasDetail).length);
+    // Every lab PDF and the one visit summary fail; the lists and details are still written.
+    expect(report.problems).toHaveLength(labs.filter((l) => l.hasDetail).length + 2);
+    expect(report.problems.at(-2)!.where).toMatch(/^documents\/visit_summaries\/files\/.*\.pdf$/);
+    expect(report.problems.at(-1)!.where).toMatch(/^records\/imaging_clinics\/files\/.*\.pdf$/);
     expect(report.problems[0]).toMatchObject({ what: "The Clalit request could not be completed (network error).", at: "2026-10-14T10:00:00.000Z" });
     expect(report.problems[0]!.where).toMatch(/^labs\/files\/.*\.pdf$/);
     expect([...sink.files.keys()].filter((n) => n.startsWith("labs/details/"))).toHaveLength(labs.filter((l) => l.hasDetail).length);
@@ -180,6 +236,19 @@ describe("exportAll", () => {
     expect(report.problems.at(-1)).toMatchObject({ where: "session" });
     expect(sink.files.get("README.md")).toContain("cut short");
     expect(sink.files.get("README.md")).toContain("`prescriptions/`");
+  });
+
+  test("an empty answer never replaces a list that had rows, and --only reruns one section", async () => {
+    const { client } = fakeClient();
+    const sink = new MemorySink();
+    await sink.putJson("records/diagnoses/list.json", { data: [{ fields: { x: "1" } }, { fields: { x: "2" } }, { fields: { x: "3" } }] });
+    const report = await exportAll(client, sink, { ...clock, only: ["diagnoses"] });
+    expect(sink.files.has("labs/list.json")).toBe(false);
+    expect(sink.files.has("records/sensitivities/list.json")).toBe(false);
+    expect(sink.json("records/diagnoses/list.json").data).toHaveLength(3);
+    expect(report.problems).toHaveLength(1);
+    expect(report.problems[0]).toMatchObject({ where: "records/diagnoses/list.json" });
+    expect(report.problems[0]!.what).toContain("previous run had 3");
   });
 
   test("names", () => {

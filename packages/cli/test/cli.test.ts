@@ -44,7 +44,7 @@ describe("http-login pages", () => {
     expect(escapeHtml("<x>")).toBe("&lt;x&gt;");
     expect(idPage("csrf-token")).toContain("Israeli ID");
     expect(idPage("csrf-token")).toContain('name="id"');
-    expect(captchaPage("csrf-token", { hasImage: true })).toContain("/captcha.png");
+    expect(captchaPage("csrf-token", { hasImage: true })).toContain('src="captcha.png"');
     expect(captchaPage("csrf-token", { hasImage: false })).toContain("CAPTCHA");
     expect(otpPage("csrf-token", "Enter SMS")).toContain('name="otp"');
     expect(errorPage("boom")).toContain("clalit-mcp login");

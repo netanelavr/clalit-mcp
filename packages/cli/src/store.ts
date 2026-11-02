@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ClalitSession } from "@clalit/core";
@@ -31,6 +31,11 @@ export async function loadSession(): Promise<ClalitSession | undefined> {
     const raw = await readFile(sessionPath(), "utf8");
     const parsed = JSON.parse(raw) as ClalitSession;
     if (parsed?.version !== 1 || !parsed.cookies || !parsed.authenticatedAt) return undefined;
+    // A file written by an older build has no lastUsedAt; its save time is the next best measure of idleness.
+    if (!parsed.lastUsedAt) {
+      const saved = await stat(sessionPath()).then((s) => s.mtimeMs, () => undefined);
+      if (saved && saved > Date.parse(parsed.authenticatedAt)) parsed.lastUsedAt = new Date(saved).toISOString();
+    }
     return parsed;
   } catch {
     return undefined;

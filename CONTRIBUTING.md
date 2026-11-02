@@ -8,3 +8,5 @@ npm run check
 ```
 
 Keep the private-core → CLI → MCP layout. Do not document `@clalit/core` as a public SDK.
+
+Add CHANGELOG entries under a dated `## YYYY-MM-DD` heading (the merge date), never `## Unreleased`.

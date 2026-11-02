@@ -1,4 +1,17 @@
-import { connect, decodeLabOrderRef, decodeLabRef, exportAll, exportName } from "@clalit/core";
+import {
+  connect,
+  decodeDocumentRef,
+  decodeRecordRef,
+  decodeLabOrderRef,
+  decodeLabRef,
+  documentSource,
+  DOCUMENT_SOURCE_IDS,
+  recordSource,
+  RECORD_SOURCE_IDS,
+  exportAll,
+  exportName,
+  ReauthenticationRequired,
+} from "@clalit/core";
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { help } from "./commands.js";
@@ -237,6 +250,113 @@ export async function runCli(args: string[]): Promise<number> {
         return 1;
       }
     }
+    case "documents": {
+      const source = flag(rest, "source");
+      if (!source || !documentSource(source)) {
+        console.error(`Usage: clalit-mcp documents --source (${DOCUMENT_SOURCE_IDS.join("|")}) [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--json]`);
+        return 2;
+      }
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const data = await client.listDocuments(source, { fromDate: flag(rest, "from"), toDate: flag(rest, "to") });
+        if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
+        else for (const row of data) console.log(`${row.date ?? ""}\t${row.details.join("\t")}\t${row.refToken}`);
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "documents failed");
+        return 1;
+      }
+    }
+    case "document": {
+      const ref = flag(rest, "ref");
+      const out = flag(rest, "out");
+      if (!ref || !out) {
+        console.error("Usage: clalit-mcp document --ref TOKEN --out FILE");
+        return 2;
+      }
+      decodeDocumentRef(ref);
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const doc = await client.getDocument(ref);
+        await writeFile(out, doc.bytes);
+        console.log(`Wrote ${out} (${doc.bytes.byteLength} bytes)`);
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "document failed");
+        return 1;
+      }
+    }
+    case "records": {
+      const source = flag(rest, "source");
+      if (!source || !recordSource(source)) {
+        console.error(`Usage: clalit-mcp records --source (${RECORD_SOURCE_IDS.join("|")}) [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--json]`);
+        return 2;
+      }
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const data = await client.listRecords(source, { fromDate: flag(rest, "from"), toDate: flag(rest, "to") });
+        if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
+        else for (const row of data) console.log([...row.cells, row.refToken ?? ""].join("\t"));
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "records failed");
+        return 1;
+      }
+    }
+    case "record-document": {
+      const ref = flag(rest, "ref");
+      const out = flag(rest, "out");
+      if (!ref || !out) {
+        console.error("Usage: clalit-mcp record-document --ref TOKEN --out FILE");
+        return 2;
+      }
+      decodeRecordRef(ref);
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const doc = await client.getRecordDocument(ref);
+        await writeFile(out, doc.bytes);
+        console.log(`Wrote ${out} (${doc.bytes.byteLength} bytes)`);
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "record-document failed");
+        return 1;
+      }
+    }
+    case "hospital-lab-result": {
+      const link = flag(rest, "link");
+      if (!link && !(flag(rest, "hospital") && (flag(rest, "test") || flag(rest, "date")))) {
+        console.error("Usage: clalit-mcp hospital-lab-result (--link PATH | --hospital VALUE --test NUMBER) [--date dd.MM.yyyy] [--json]   (from a `records --source hospital_labs --json` row: its links, context.value and מספר הבדיקה)");
+        return 2;
+      }
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const hospital = flag(rest, "hospital");
+        const data = await client.getHospitalLabResult({
+          link,
+          ...(hospital ? { context: { select: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$ddlHospitalName", value: hospital } } : {}),
+          testNumber: flag(rest, "test"),
+          date: flag(rest, "date"),
+        });
+        if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
+        else {
+          console.log(data.title);
+          if (data.date) console.log(data.date);
+          for (const a of data.analytes) {
+            const units = a.units && !a.result.endsWith(a.units) ? a.units : "";
+            console.log([a.name, a.result, units, a.referenceRange ?? "", a.flag ?? ""].filter(Boolean).join("\t"));
+          }
+        }
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "hospital-lab-result failed");
+        return 1;
+      }
+    }
     case "export": {
       const client = await requireClient();
       if (!client) return 3;
@@ -247,6 +367,7 @@ export async function runCli(args: string[]): Promise<number> {
           toDate: flag(rest, "to"),
           documents: !has(rest, "no-documents"),
           includeExpired: !has(rest, "current-only"),
+          ...(flag(rest, "only") ? { only: flag(rest, "only")!.split(",").map((x) => x.trim()).filter(Boolean) } : {}),
           log: (line) => console.log(line),
         });
         const width = Math.max(0, ...Object.keys(report.folders).map((k) => k.length));
@@ -258,6 +379,43 @@ export async function runCli(args: string[]): Promise<number> {
         console.error(err instanceof Error ? err.message : "export failed");
         return 1;
       }
+    }
+    case "keep-alive": {
+      // Hold the session open from a second terminal while the first one works (export, sitemap, …).
+      const everyRaw = flag(rest, "every");
+      const everyMin = everyRaw ? Number(everyRaw) : 4;
+      if (!Number.isFinite(everyMin) || everyMin < 1 || everyMin > 9) {
+        console.error("Usage: clalit-mcp keep-alive [--every MINUTES]   (1–9; the portal drops a session after ~10 idle minutes)");
+        return 2;
+      }
+      const client = await requireClient();
+      if (!client) return 3;
+      const { saveSession } = await import("./store.js");
+      let stop = false;
+      process.once("SIGINT", () => {
+        stop = true;
+      });
+      console.error(`Keeping the Clalit session alive every ${everyMin} min; Ctrl-C to stop.`);
+      while (!stop) {
+        try {
+          await client.refreshSession();
+          await client.checkSession();
+          await saveSession(await client.exportSession());
+          console.error(`${new Date().toLocaleTimeString("en-GB")} alive`);
+        } catch (err) {
+          console.error(err instanceof Error ? err.message : "keep-alive failed");
+          if (err instanceof ReauthenticationRequired) return 3;
+        }
+        await new Promise<void>((r) => {
+          const t = setTimeout(r, everyMin * 60_000);
+          process.once("SIGINT", () => {
+            clearTimeout(t);
+            r();
+          });
+        });
+      }
+      console.error("Stopped; the session itself is left as it is.");
+      return 0;
     }
     case "refresh-session": {
       const client = await requireClient();

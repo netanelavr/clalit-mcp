@@ -38,6 +38,10 @@ Nothing is typed into the site for you, and nothing is solved or bypassed: the b
 
 `--record` additionally writes `login-record-<time>.json` (mode `0600`) in the config directory: every portal request the browser made during the sign-in (documents, XHR/fetch, form posts, the CAPTCHA image), reduced to shapes — method, path, query **keys** with each value's class and length (`digits(9)`, `alnum(8)`, `base64(2316)`), form **field names** with the same, a few request headers (the referer as a path), status, redirect paths, `Set-Cookie` **names**, and for each HTML page its forms, inputs (name, type, value shape), `__doPostBack` targets, script-set cookie **names**, redirects and sign-in links. Then the cookie names, domains and flags the browser ended with, and the path landed on. No value of yours is in it. It is what someone needs to build a sign-in that needs no browser, and it is safe to share.
 
+## Debugging a reader
+
+`CLALIT_DEBUG_DIR=/some/private/dir` makes the transport write every response body it receives there (`001_GET_200_Services_Labs_LabsTestList.aspx.html`, …; mode 0600; never headers or cookies), so a parser can be checked against what the portal actually answered. The files hold the member's record: keep the directory private and delete it afterwards.
+
 ## What we store
 
 Config directory (mode `0700`), resolved as:
