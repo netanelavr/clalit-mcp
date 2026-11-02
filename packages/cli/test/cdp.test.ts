@@ -30,9 +30,12 @@ async function until(check: () => boolean, ms: number): Promise<boolean> {
   return check();
 }
 
+/** A first browser launch on a cold CI runner takes 7-13 s and has run past 15 s; openBrowser itself allows 30 s. */
+const CHILD_MS = 45_000;
+
 /** Runs the helper as the CLI would run: it must exit by itself within the timeout. Returns the browser's pid. */
 async function runChild(mode: "close" | "detach", profileDir: string): Promise<number> {
-  const { stdout } = await promisify(execFile)(process.execPath, ["--import", "tsx", CHILD, profileDir, mode], { cwd: ROOT, timeout: 15_000 });
+  const { stdout } = await promisify(execFile)(process.execPath, ["--import", "tsx", CHILD, profileDir, mode], { cwd: ROOT, timeout: CHILD_MS });
   const pid = Number(/pid (\d+)/.exec(stdout)?.[1]);
   expect(pid).toBeGreaterThan(0);
   return pid;
@@ -60,12 +63,12 @@ describe.skipIf(!canRun)("DevTools client (headless browser)", () => {
     const pid = await runChild("close", profile());
     browsers.push(pid);
     expect(await until(() => !alive(pid), 5000)).toBe(true);
-  });
+  }, CHILD_MS + 10_000);
 
   test("detach() lets the process exit while the browser stays open (--keep-open)", async () => {
     const pid = await runChild("detach", profile());
     browsers.push(pid);
     await new Promise((r) => setTimeout(r, 1000));
     expect(alive(pid)).toBe(true);
-  });
+  }, CHILD_MS + 10_000);
 });
